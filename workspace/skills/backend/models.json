@@ -1,0 +1,16 @@
+{
+  "agent": "backend",
+  "default": "standard",
+  "models": {
+    "free": "qwen/qwen3-coder:free",
+    "budget": "google/gemini-2.5-flash-lite",
+    "standard": "deepseek/deepseek-chat",
+    "premium": "deepseek/deepseek-r1"
+  },
+  "thresholds": {
+    "complex_task": "premium",
+    "budget_warning": "budget",
+    "budget_critical": "free"
+  },
+  "observation_window_days": 6
+}

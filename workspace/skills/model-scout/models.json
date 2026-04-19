@@ -1,0 +1,17 @@
+{
+  "agent": "model-scout",
+  "default": "standard",
+  "models": {
+    "free": "qwen/qwen3-coder:free",
+    "budget": "google/gemini-2.5-flash-lite",
+    "standard": "google/gemini-3-flash",
+    "premium": "deepseek/deepseek-r1"
+  },
+  "thresholds": {
+    "complex_task": "standard",
+    "budget_warning": "budget",
+    "budget_critical": "budget"
+  },
+  "observation_window_days": 6,
+  "note": "Gemini 3 Flash für Web-Recherche: nativer Web-Zugang, 1M Context, multimodal für Screenshots und PDFs"
+}

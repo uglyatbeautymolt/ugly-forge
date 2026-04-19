@@ -1,0 +1,17 @@
+{
+  "agent": "frontend",
+  "default": "free",
+  "models": {
+    "free": "qwen/qwen3-coder:free",
+    "budget": "google/gemini-2.5-flash-lite",
+    "standard": "google/gemini-3-flash",
+    "premium": "deepseek/deepseek-r1"
+  },
+  "thresholds": {
+    "complex_task": "standard",
+    "budget_warning": "free",
+    "budget_critical": "free"
+  },
+  "observation_window_days": 1,
+  "note": "Qwen3 Coder 480B ist der stärkste freie Coding-Agent — strikt tracken, 24h Fenster"
+}
