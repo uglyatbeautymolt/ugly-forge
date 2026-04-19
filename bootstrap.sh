@@ -3,16 +3,6 @@
 # Aktiviert die KI-Softwareschmiede auf einem bestehenden ugly-stack
 # Idempotent — kann beliebig oft ausgeführt werden
 # Ausführen als normaler User (nicht root) — sudo wird intern verwendet wenn nötig
-#
-# WICHTIG: ugly-forge muss NEBEN ugly-stack liegen:
-#   ~/VPS_Bootstrap/   ← ugly-stack
-#   ~/ugly-forge/      ← dieses Repo (hier klonen!)
-#
-# Korrekte Installation:
-#   cd ~
-#   git clone https://github.com/uglyatbeautymolt/ugly-forge.git
-#   cd ugly-forge
-#   bash bootstrap.sh
 
 set -e
 
@@ -79,7 +69,6 @@ echo -e "${COLOR_YELLOW}[1/9] Prüfe und installiere System-Abhängigkeiten...${
 
 if ! command -v apt-get &> /dev/null; then
   echo -e "${COLOR_YELLOW}  ⚠ apt-get nicht gefunden — kein automatisches Installieren möglich${COLOR_NC}"
-  echo -e "${COLOR_YELLOW}    Bitte manuell sicherstellen: sqlite3, curl, python3, git${COLOR_NC}"
 fi
 
 require_cmd curl
@@ -88,22 +77,29 @@ require_cmd python3
 require_cmd sqlite3
 
 if ! command -v docker &> /dev/null; then
-  echo -e "${COLOR_RED}❌ docker nicht gefunden. Muss manuell installiert werden.${COLOR_NC}"
-  echo -e "${COLOR_RED}   https://docs.docker.com/engine/install/${COLOR_NC}"
+  echo -e "${COLOR_RED}❌ docker nicht gefunden. https://docs.docker.com/engine/install/${COLOR_NC}"
   exit 1
 fi
 echo -e "  ✓ docker"
 
 if ! docker compose version &> /dev/null 2>&1; then
-  echo -e "${COLOR_RED}❌ 'docker compose' Plugin nicht gefunden.${COLOR_NC}"
-  echo -e "${COLOR_RED}   sudo apt-get install docker-compose-plugin${COLOR_NC}"
+  echo -e "${COLOR_RED}❌ 'docker compose' Plugin fehlt. sudo apt-get install docker-compose-plugin${COLOR_NC}"
   exit 1
 fi
 echo -e "  ✓ docker compose"
 
 if [ "$(id -u)" != "0" ] && ! groups | grep -q docker; then
-  echo -e "${COLOR_YELLOW}  ⚠ User '$(whoami)' nicht in docker-Gruppe.${COLOR_NC}"
-  echo -e "${COLOR_YELLOW}    Fix: sudo usermod -aG docker \$USER && newgrp docker${COLOR_NC}"
+  echo -e "${COLOR_YELLOW}  ⚠ User '$(whoami)' nicht in docker-Gruppe. Fix: sudo usermod -aG docker \$USER && newgrp docker${COLOR_NC}"
+fi
+
+# pip json5 installieren falls nicht vorhanden (brauchen wir für den Merge)
+if ! python3 -c "import json5" 2>/dev/null; then
+  echo -e "  ${COLOR_YELLOW}⚠ python3-json5 nicht gefunden — installiere...${COLOR_NC}"
+  if command -v pip3 &> /dev/null; then
+    pip3 install json5 --quiet --break-system-packages 2>/dev/null || pip3 install json5 --quiet 2>/dev/null || true
+  elif command -v pip &> /dev/null; then
+    pip install json5 --quiet --break-system-packages 2>/dev/null || pip install json5 --quiet 2>/dev/null || true
+  fi
 fi
 
 echo -e "${COLOR_GREEN}✅ Alle System-Abhängigkeiten vorhanden${COLOR_NC}"
@@ -115,22 +111,13 @@ echo -e "${COLOR_YELLOW}[2/9] Prüfe ugly-stack und OpenClaw...${COLOR_NC}"
 
 if [ ! -d "$STACK_DIR" ]; then
   echo -e "${COLOR_RED}❌ ugly-stack nicht gefunden!${COLOR_NC}"
-  echo -e ""
-  echo -e "${COLOR_RED}   ugly-forge muss NEBEN ugly-stack liegen:${COLOR_NC}"
-  echo -e "${COLOR_RED}   $PARENT_DIR/${COLOR_NC}"
-  echo -e "${COLOR_RED}   ├── VPS_Bootstrap/   ← ugly-stack (hier erwartet)${COLOR_NC}"
-  echo -e "${COLOR_RED}   └── ugly-forge/      ← du bist hier${COLOR_NC}"
-  echo -e ""
-  echo -e "${COLOR_RED}   Lösung:${COLOR_NC}"
-  echo -e "${COLOR_RED}     cd ~${COLOR_NC}"
-  echo -e "${COLOR_RED}     git clone https://github.com/uglyatbeautymolt/ugly-forge.git${COLOR_NC}"
-  echo -e "${COLOR_RED}     cd ugly-forge && bash bootstrap.sh${COLOR_NC}"
+  echo -e "${COLOR_RED}   ugly-forge muss NEBEN ugly-stack liegen: $PARENT_DIR/${COLOR_NC}"
+  echo -e "${COLOR_RED}   Lösung: cd ~ && git clone https://github.com/uglyatbeautymolt/ugly-forge.git && cd ugly-forge && bash bootstrap.sh${COLOR_NC}"
   exit 1
 fi
 
 if ! docker compose -f "$STACK_DIR/docker-compose.yml" ps openclaw 2>/dev/null | grep -q "Up"; then
-  echo -e "${COLOR_RED}❌ OpenClaw läuft nicht.${COLOR_NC}"
-  echo -e "${COLOR_RED}   Starten: cd $STACK_DIR && docker compose up -d${COLOR_NC}"
+  echo -e "${COLOR_RED}❌ OpenClaw läuft nicht. Starten: cd $STACK_DIR && docker compose up -d${COLOR_NC}"
   exit 1
 fi
 
@@ -152,8 +139,7 @@ REMOTE_URL=$(git -C "$STACK_DIR" remote get-url origin 2>/dev/null || echo "")
 GITHUB_TOKEN=$(echo "$REMOTE_URL" | sed 's|https://||' | cut -d'@' -f1)
 
 if [ -z "$GITHUB_TOKEN" ] || [ "$GITHUB_TOKEN" = "$REMOTE_URL" ]; then
-  echo -e "${COLOR_RED}❌ Kein Token in Git Remote URL gefunden${COLOR_NC}"
-  echo -e "${COLOR_RED}   Erwartet: https://<TOKEN>@github.com/...${COLOR_NC}"
+  echo -e "${COLOR_RED}❌ Kein Token in Git Remote URL. Erwartet: https://<TOKEN>@github.com/...${COLOR_NC}"
   exit 1
 fi
 
@@ -165,7 +151,7 @@ if [ "$HTTP_CODE" != "200" ]; then
   unset GITHUB_TOKEN; rm -f /tmp/gh_forge.json; exit 1
 fi
 
-GITHUB_USERNAME=$(python3 -c 'import sys,json; print(json.load(open("/tmp/gh_forge.json"))["login"])' 2>/dev/null)
+GITHUB_USERNAME=$(python3 -c 'import json; print(json.load(open("/tmp/gh_forge.json"))["login"])' 2>/dev/null)
 rm -f /tmp/gh_forge.json
 echo -e "${COLOR_GREEN}✅ GitHub Token gültig — User: $GITHUB_USERNAME${COLOR_NC}"
 
@@ -182,8 +168,7 @@ fi
 
 PROJEKT_GPG_KEY=$(grep "^PROJEKT_GPG_KEY=" "$STACK_ENV" | cut -d'=' -f2-)
 if [ -z "$PROJEKT_GPG_KEY" ]; then
-  echo -e "${COLOR_RED}❌ PROJEKT_GPG_KEY fehlt in $STACK_ENV${COLOR_NC}"
-  echo -e "${COLOR_RED}   Erzeugen: openssl rand -base64 48${COLOR_NC}"
+  echo -e "${COLOR_RED}❌ PROJEKT_GPG_KEY fehlt. Erzeugen: openssl rand -base64 48${COLOR_NC}"
   unset GITHUB_TOKEN; exit 1
 fi
 echo -e "${COLOR_GREEN}✅ PROJEKT_GPG_KEY gelesen (${#PROJEKT_GPG_KEY} Zeichen)${COLOR_NC}"
@@ -229,116 +214,108 @@ echo -e "${COLOR_GREEN}✅ FORGE-INDEX-template.md installiert${COLOR_NC}"
 
 # ─────────────────────────────────────────────────────────────
 # 7. OPENCLAW.JSON — automatisch mergen
-#    Wenn bereits vorhanden: forge-Agenten hinzufügen ohne bestehende Config zu zerstören
-#    Wenn nicht vorhanden: direkt kopieren
 # ─────────────────────────────────────────────────────────────
 echo -e "${COLOR_YELLOW}[7/9] Konfiguriere openclaw.json...${COLOR_NC}"
 
 FORGE_AGENTS_JSON="$FORGE_DIR/workspace/openclaw-forge.json"
 
 if [ ! -f "$OC_CONFIG" ]; then
-  # Neu anlegen — direkt kopieren
   cp "$FORGE_AGENTS_JSON" "$OC_CONFIG"
   echo -e "${COLOR_GREEN}✅ openclaw.json erstellt (JSON5, 12 Agenten)${COLOR_NC}"
+
+elif grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
+  echo -e "  ✓ forge-Agenten bereits in openclaw.json"
+
 else
-  # Bereits vorhanden — intelligent mergen via Python3
-  # Prüfen ob forge-Agenten bereits drin sind
-  if grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
-    echo -e "  ✓ forge-Agenten bereits in openclaw.json — überspringe Merge"
-  else
-    echo -e "  Merge forge-Agenten in bestehende openclaw.json..."
+  echo -e "  Merge forge-Agenten in bestehende openclaw.json..."
 
-    # Backup erstellen
-    cp "$OC_CONFIG" "${OC_CONFIG}.backup-$(date +%Y%m%d-%H%M%S)"
-    echo -e "  ${COLOR_GREEN}+ Backup erstellt: ${OC_CONFIG}.backup-*${COLOR_NC}"
+  # Backup
+  BACKUP="${OC_CONFIG}.backup-$(date +%Y%m%d-%H%M%S)"
+  cp "$OC_CONFIG" "$BACKUP"
+  echo -e "  ${COLOR_GREEN}+ Backup: $BACKUP${COLOR_NC}"
 
-    # Python3 Merge-Script
-    # Strategie: JSON5-Kommentare entfernen, dann als JSON parsen und mergen
-    python3 << PYEOF
-import json, re, sys
+  # Merge-Script: nutzt json5-Library falls verfügbar, sonst robuster Regex-Strip
+  python3 << PYEOF
+import sys, json, re, os
 
-def strip_json5_comments(text):
-    """Entfernt // und /* */ Kommentare aus JSON5"""
-    # /* */ Kommentare
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
-    # // Kommentare (aber nicht URLs wie https://)
-    text = re.sub(r'(?<!:)//[^\n]*', '', text)
-    # Trailing commas vor } oder ]
-    text = re.sub(r',(\s*[}\]])', r'\1', text)
+def strip_json5(text):
+    """Entfernt JSON5-spezifische Syntax: Kommentare, trailing commas, unquoted keys"""
+    # Block-Kommentare /* ... */
+    text = re.sub(r'/\*[\s\S]*?\*/', '', text)
+    # Zeilen-Kommentare // ... (nicht http://)
+    text = re.sub(r'(?<![:/])//.*', '', text)
+    # Trailing commas: , gefolgt von optionalem Whitespace und } oder ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+    # Unquoted keys: word: -> "word":
+    text = re.sub(r'([{,\s])([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', text)
     return text
 
-try:
-    # Bestehende openclaw.json lesen
-    with open('$OC_CONFIG', 'r') as f:
-        existing_raw = f.read()
+def parse_config(path):
+    with open(path, 'r') as f:
+        raw = f.read()
+    # Erst json5-Library versuchen
+    try:
+        import json5
+        return json5.loads(raw)
+    except ImportError:
+        pass
+    # Fallback: eigener Strip
+    try:
+        return json.loads(strip_json5(raw))
+    except json.JSONDecodeError as e:
+        print(f"ERR:Konnte {path} nicht parsen: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    # forge-Config lesen
-    with open('$FORGE_AGENTS_JSON', 'r') as f:
-        forge_raw = f.read()
+existing = parse_config('$OC_CONFIG')
+forge = parse_config('$FORGE_AGENTS_JSON')
 
-    # JSON5 -> JSON
-    existing = json.loads(strip_json5_comments(existing_raw))
-    forge = json.loads(strip_json5_comments(forge_raw))
+# agents-Struktur sicherstellen
+if 'agents' not in existing:
+    existing['agents'] = {}
+if 'list' not in existing['agents']:
+    existing['agents']['list'] = []
+if 'defaults' not in existing['agents']:
+    existing['agents']['defaults'] = {}
+if 'workspace' not in existing['agents']['defaults']:
+    existing['agents']['defaults']['workspace'] = '~/.openclaw/workspace'
 
-    # Sicherstellen dass agents-Struktur vorhanden
-    if 'agents' not in existing:
-        existing['agents'] = {}
-    if 'list' not in existing['agents']:
-        existing['agents']['list'] = []
-    if 'defaults' not in existing['agents']:
-        existing['agents']['defaults'] = {}
+# loopDetection unter agents.defaults.tools
+if 'tools' not in existing['agents']['defaults']:
+    existing['agents']['defaults']['tools'] = {}
+if 'loopDetection' not in existing['agents']['defaults']['tools']:
+    existing['agents']['defaults']['tools']['loopDetection'] = \
+        forge['agents']['defaults']['tools']['loopDetection']
 
-    # Workspace-Default setzen falls nicht vorhanden
-    if 'workspace' not in existing['agents']['defaults']:
-        existing['agents']['defaults']['workspace'] = '~/.openclaw/workspace'
+# Forge-Agenten mergen (keine Duplikate)
+existing_ids = {a.get('id') for a in existing['agents']['list']}
+added = 0
+for agent in forge['agents']['list']:
+    if agent['id'] not in existing_ids:
+        existing['agents']['list'].append(agent)
+        added += 1
 
-    # loopDetection unter agents.defaults.tools eintragen
-    if 'tools' not in existing['agents']['defaults']:
-        existing['agents']['defaults']['tools'] = {}
-    if 'loopDetection' not in existing['agents']['defaults']['tools']:
-        existing['agents']['defaults']['tools']['loopDetection'] = forge['agents']['defaults']['tools']['loopDetection']
+with open('$OC_CONFIG', 'w') as f:
+    json.dump(existing, f, indent=2, ensure_ascii=False)
 
-    # Forge-Agenten hinzufügen (bestehende IDs nicht doppeln)
-    existing_ids = {a.get('id') for a in existing['agents']['list']}
-    forge_agents = forge['agents']['list']
-    added = 0
-    for agent in forge_agents:
-        if agent['id'] not in existing_ids:
-            existing['agents']['list'].append(agent)
-            added += 1
-
-    # Zurückschreiben als sauberes JSON
-    with open('$OC_CONFIG', 'w') as f:
-        json.dump(existing, f, indent=2, ensure_ascii=False)
-
-    print(f"OK:{added}")
-
-except Exception as e:
-    print(f"ERR:{e}", file=sys.stderr)
-    sys.exit(1)
+print(f"Merge OK: {added} Agenten hinzugefügt")
 PYEOF
 
-    MERGE_RESULT=$?
-    if [ $MERGE_RESULT -ne 0 ]; then
-      echo -e "${COLOR_RED}❌ Merge fehlgeschlagen — stelle Backup wieder her${COLOR_NC}"
-      cp "${OC_CONFIG}.backup-"* "$OC_CONFIG" 2>/dev/null || true
-      exit 1
-    fi
+  if [ $? -ne 0 ]; then
+    echo -e "${COLOR_RED}❌ Merge fehlgeschlagen — Backup wird wiederhergestellt${COLOR_NC}"
+    cp "$BACKUP" "$OC_CONFIG"
+    exit 1
+  fi
 
-    # Wieviele Agenten wurden hinzugefügt?
-    ADDED_COUNT=$(python3 -c "
+  ADDED=$(python3 -c "
 import json
-with open('$OC_CONFIG') as f:
-    cfg = json.load(f)
+with open('$OC_CONFIG') as f: cfg = json.load(f)
 forge_ids = ['forge-orchestrator','forge-requirements','forge-review','forge-architekt',
              'forge-webdesigner','forge-db','forge-backend','forge-frontend',
              'forge-qa','forge-devops','forge-retro','forge-model-scout']
-found = sum(1 for a in cfg.get('agents',{}).get('list',[]) if a.get('id') in forge_ids)
-print(found)
-" 2>/dev/null || echo "0")
+print(sum(1 for a in cfg.get('agents',{}).get('list',[]) if a.get('id') in forge_ids))
+" 2>/dev/null || echo "?")
 
-    echo -e "${COLOR_GREEN}✅ openclaw.json gemergt — $ADDED_COUNT/12 forge-Agenten eingetragen${COLOR_NC}"
-  fi
+  echo -e "${COLOR_GREEN}✅ openclaw.json gemergt — $ADDED/12 forge-Agenten eingetragen${COLOR_NC}"
 fi
 
 # ─────────────────────────────────────────────────────────────
@@ -464,7 +441,7 @@ echo ""
 if [ -f "$OC_CONFIG" ] && grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
   echo -e "${COLOR_GREEN}openclaw.json: ✅ forge-Agenten konfiguriert${COLOR_NC}"
 else
-  echo -e "${COLOR_RED}openclaw.json: ❌ forge-Agenten fehlen — bitte bootstrap.sh erneut ausführen${COLOR_NC}"
+  echo -e "${COLOR_RED}openclaw.json: ❌ forge-Agenten fehlen — bootstrap.sh erneut ausführen${COLOR_NC}"
 fi
 
 echo ""
