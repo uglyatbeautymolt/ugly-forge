@@ -89,17 +89,7 @@ fi
 echo -e "  ✓ docker compose"
 
 if [ "$(id -u)" != "0" ] && ! groups | grep -q docker; then
-  echo -e "${COLOR_YELLOW}  ⚠ User '$(whoami)' nicht in docker-Gruppe. Fix: sudo usermod -aG docker \$USER && newgrp docker${COLOR_NC}"
-fi
-
-# pip json5 installieren falls nicht vorhanden (brauchen wir für den Merge)
-if ! python3 -c "import json5" 2>/dev/null; then
-  echo -e "  ${COLOR_YELLOW}⚠ python3-json5 nicht gefunden — installiere...${COLOR_NC}"
-  if command -v pip3 &> /dev/null; then
-    pip3 install json5 --quiet --break-system-packages 2>/dev/null || pip3 install json5 --quiet 2>/dev/null || true
-  elif command -v pip &> /dev/null; then
-    pip install json5 --quiet --break-system-packages 2>/dev/null || pip install json5 --quiet 2>/dev/null || true
-  fi
+  echo -e "${COLOR_YELLOW}  ⚠ User nicht in docker-Gruppe. Fix: sudo usermod -aG docker \$USER && newgrp docker${COLOR_NC}"
 fi
 
 echo -e "${COLOR_GREEN}✅ Alle System-Abhängigkeiten vorhanden${COLOR_NC}"
@@ -110,8 +100,7 @@ echo -e "${COLOR_GREEN}✅ Alle System-Abhängigkeiten vorhanden${COLOR_NC}"
 echo -e "${COLOR_YELLOW}[2/9] Prüfe ugly-stack und OpenClaw...${COLOR_NC}"
 
 if [ ! -d "$STACK_DIR" ]; then
-  echo -e "${COLOR_RED}❌ ugly-stack nicht gefunden!${COLOR_NC}"
-  echo -e "${COLOR_RED}   ugly-forge muss NEBEN ugly-stack liegen: $PARENT_DIR/${COLOR_NC}"
+  echo -e "${COLOR_RED}❌ ugly-stack nicht gefunden unter $PARENT_DIR/${COLOR_NC}"
   echo -e "${COLOR_RED}   Lösung: cd ~ && git clone https://github.com/uglyatbeautymolt/ugly-forge.git && cd ugly-forge && bash bootstrap.sh${COLOR_NC}"
   exit 1
 fi
@@ -213,109 +202,114 @@ echo -e "${COLOR_GREEN}✅ AGENTS.md → $OC_WORKSPACE/AGENTS.md${COLOR_NC}"
 echo -e "${COLOR_GREEN}✅ FORGE-INDEX-template.md installiert${COLOR_NC}"
 
 # ─────────────────────────────────────────────────────────────
-# 7. OPENCLAW.JSON — automatisch mergen
+# 7. OPENCLAW.JSON — sicher mergen
+#
+# Strategie: KEIN Parsen der bestehenden Datei.
+# Stattdessen: forge-Agenten als Text-Block direkt vor die letzte
+# schliessende Klammer } einfügen. Das funktioniert unabhängig
+# vom genauen Format (JSON oder JSON5).
 # ─────────────────────────────────────────────────────────────
 echo -e "${COLOR_YELLOW}[7/9] Konfiguriere openclaw.json...${COLOR_NC}"
 
-FORGE_AGENTS_JSON="$FORGE_DIR/workspace/openclaw-forge.json"
-
 if [ ! -f "$OC_CONFIG" ]; then
-  cp "$FORGE_AGENTS_JSON" "$OC_CONFIG"
+  # Neu anlegen
+  cp "$FORGE_DIR/workspace/openclaw-forge.json" "$OC_CONFIG"
   echo -e "${COLOR_GREEN}✅ openclaw.json erstellt (JSON5, 12 Agenten)${COLOR_NC}"
 
 elif grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
-  echo -e "  ✓ forge-Agenten bereits in openclaw.json"
+  echo -e "  ✓ forge-Agenten bereits in openclaw.json — überspringe"
 
 else
-  echo -e "  Merge forge-Agenten in bestehende openclaw.json..."
+  echo -e "  Füge forge-Agenten in bestehende openclaw.json ein..."
 
   # Backup
   BACKUP="${OC_CONFIG}.backup-$(date +%Y%m%d-%H%M%S)"
   cp "$OC_CONFIG" "$BACKUP"
   echo -e "  ${COLOR_GREEN}+ Backup: $BACKUP${COLOR_NC}"
 
-  # Merge-Script: nutzt json5-Library falls verfügbar, sonst robuster Regex-Strip
+  # Forge-Agenten als JSON-Block vorbereiten (reines JSON, kein JSON5)
+  # Wir lesen die Agent-IDs und Konfigurationen direkt aus der forge-json
+  # und bauen den inject-Block in Python — aber wir lesen NUR die forge-Datei (JSON5)
+  # und schreiben Text-Injection in die bestehende Datei
   python3 << PYEOF
-import sys, json, re, os
+import re, sys
 
-def strip_json5(text):
-    """Entfernt JSON5-spezifische Syntax: Kommentare, trailing commas, unquoted keys"""
-    # Block-Kommentare /* ... */
-    text = re.sub(r'/\*[\s\S]*?\*/', '', text)
-    # Zeilen-Kommentare // ... (nicht http://)
-    text = re.sub(r'(?<![:/])//.*', '', text)
-    # Trailing commas: , gefolgt von optionalem Whitespace und } oder ]
-    text = re.sub(r',\s*([}\]])', r'\1', text)
-    # Unquoted keys: word: -> "word":
-    text = re.sub(r'([{,\s])([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', text)
+forge_path = '$FORGE_DIR/workspace/openclaw-forge.json'
+config_path = '$OC_CONFIG'
+
+# forge-json lesen und JSON5 → JSON
+with open(forge_path, 'r') as f:
+    forge_raw = f.read()
+
+# JSON5 Kommentare + trailing commas + unquoted keys bereinigen
+def to_json(text):
+    text = re.sub(r'/\*[\s\S]*?\*/', '', text)           # Block-Kommentare
+    text = re.sub(r'(?m)^\s*//.*$', '', text)             # Zeilen-Kommentare
+    text = re.sub(r',(\s*[}\]])', r'\1', text)            # Trailing commas
+    text = re.sub(r'([{,]\s*)([a-zA-Z_]\w*)(\s*:)', r'\1"\2"\3', text)  # Unquoted keys
     return text
 
-def parse_config(path):
-    with open(path, 'r') as f:
-        raw = f.read()
-    # Erst json5-Library versuchen
-    try:
-        import json5
-        return json5.loads(raw)
-    except ImportError:
-        pass
-    # Fallback: eigener Strip
-    try:
-        return json.loads(strip_json5(raw))
-    except json.JSONDecodeError as e:
-        print(f"ERR:Konnte {path} nicht parsen: {e}", file=sys.stderr)
+import json
+try:
+    forge = json.loads(to_json(forge_raw))
+except Exception as e:
+    print(f"ERR: forge-json parse: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Agenten-Liste aus forge extrahieren
+agents = forge.get('agents', {}).get('list', [])
+if not agents:
+    print("ERR: Keine Agenten in forge-config gefunden", file=sys.stderr)
+    sys.exit(1)
+
+# Agents als JSON-String bauen
+agents_json = json.dumps(agents, indent=4, ensure_ascii=False)
+# Einrückung anpassen (2 spaces)
+agents_json = '\n'.join('    ' + line for line in agents_json.splitlines())
+
+# loopDetection Block
+loop_detection = forge.get('agents', {}).get('defaults', {}).get('tools', {}).get('loopDetection', {})
+loop_json = json.dumps(loop_detection, indent=4, ensure_ascii=False)
+
+# Bestehende openclaw.json als Text lesen
+with open(config_path, 'r') as f:
+    existing = f.read()
+
+# Prüfen ob 'agents' bereits vorhanden
+if '"agents"' in existing or "'agents'" in existing or 'agents:' in existing or 'agents :' in existing:
+    # agents-Block existiert — agents.list suchen und Einträge anhängen
+    # Suche die letzte ] vor der abschliessenden } des agents-Blocks
+    # Sichere Methode: forge-Agenten VOR der letzten ] im agents.list einsetzen
+    # Wir suchen nach dem Muster "list": [ ... ] und fügen vor ] ein
+    inject = ',\n' + agents_json[1:-1]  # ohne äussere [ ]
+    # Finde letzte ] in der Datei (Ende von agents.list)
+    last_bracket = existing.rfind(']')
+    if last_bracket == -1:
+        print("ERR: Kein ] gefunden in openclaw.json", file=sys.stderr)
         sys.exit(1)
+    existing = existing[:last_bracket] + inject + '\n' + existing[last_bracket:]
+else:
+    # Kein agents-Block — gesamten forge agents-Block vor letzter } einfügen
+    inject = ',\n  "agents": {\n    "defaults": {\n      "workspace": "~/.openclaw/workspace",\n      "tools": {\n        "loopDetection": ' + loop_json + '\n      }\n    },\n    "list": ' + json.dumps(agents, indent=4, ensure_ascii=False) + '\n  }'
+    last_brace = existing.rfind('}')
+    if last_brace == -1:
+        print("ERR: Kein } gefunden in openclaw.json", file=sys.stderr)
+        sys.exit(1)
+    existing = existing[:last_brace] + inject + '\n}'
 
-existing = parse_config('$OC_CONFIG')
-forge = parse_config('$FORGE_AGENTS_JSON')
+with open(config_path, 'w') as f:
+    f.write(existing)
 
-# agents-Struktur sicherstellen
-if 'agents' not in existing:
-    existing['agents'] = {}
-if 'list' not in existing['agents']:
-    existing['agents']['list'] = []
-if 'defaults' not in existing['agents']:
-    existing['agents']['defaults'] = {}
-if 'workspace' not in existing['agents']['defaults']:
-    existing['agents']['defaults']['workspace'] = '~/.openclaw/workspace'
-
-# loopDetection unter agents.defaults.tools
-if 'tools' not in existing['agents']['defaults']:
-    existing['agents']['defaults']['tools'] = {}
-if 'loopDetection' not in existing['agents']['defaults']['tools']:
-    existing['agents']['defaults']['tools']['loopDetection'] = \
-        forge['agents']['defaults']['tools']['loopDetection']
-
-# Forge-Agenten mergen (keine Duplikate)
-existing_ids = {a.get('id') for a in existing['agents']['list']}
-added = 0
-for agent in forge['agents']['list']:
-    if agent['id'] not in existing_ids:
-        existing['agents']['list'].append(agent)
-        added += 1
-
-with open('$OC_CONFIG', 'w') as f:
-    json.dump(existing, f, indent=2, ensure_ascii=False)
-
-print(f"Merge OK: {added} Agenten hinzugefügt")
+print(f"OK: {len(agents)} Agenten eingefügt")
 PYEOF
 
   if [ $? -ne 0 ]; then
-    echo -e "${COLOR_RED}❌ Merge fehlgeschlagen — Backup wird wiederhergestellt${COLOR_NC}"
+    echo -e "${COLOR_RED}❌ Merge fehlgeschlagen — stelle Backup wieder her${COLOR_NC}"
     cp "$BACKUP" "$OC_CONFIG"
     exit 1
   fi
 
-  ADDED=$(python3 -c "
-import json
-with open('$OC_CONFIG') as f: cfg = json.load(f)
-forge_ids = ['forge-orchestrator','forge-requirements','forge-review','forge-architekt',
-             'forge-webdesigner','forge-db','forge-backend','forge-frontend',
-             'forge-qa','forge-devops','forge-retro','forge-model-scout']
-print(sum(1 for a in cfg.get('agents',{}).get('list',[]) if a.get('id') in forge_ids))
-" 2>/dev/null || echo "?")
-
-  echo -e "${COLOR_GREEN}✅ openclaw.json gemergt — $ADDED/12 forge-Agenten eingetragen${COLOR_NC}"
+  echo -e "${COLOR_GREEN}✅ openclaw.json aktualisiert — 12 forge-Agenten eingetragen${COLOR_NC}"
 fi
 
 # ─────────────────────────────────────────────────────────────
