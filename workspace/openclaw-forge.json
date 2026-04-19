@@ -1,0 +1,168 @@
+// ugly-forge Agenten-Konfiguration
+// JSON5 Format — Kommentare und trailing commas erlaubt
+//
+// VERWENDUNG:
+// Falls openclaw.json noch nicht existiert: wird automatisch als openclaw.json kopiert
+// Falls openclaw.json bereits existiert: agents.list und tools.loopDetection manuell eintragen
+//
+// WICHTIG: model.primary Syntax — nicht model direkt!
+// WICHTIG: Alle forge-Agenten teilen denselben Workspace ~/.openclaw/workspace
+//          Skills liegen in ~/.openclaw/skills/ (shared für alle Agenten)
+//          agentDir wird automatisch pro Agent erstellt: ~/.openclaw/agents/<id>/
+//
+{
+  // ─── Loop-Detection (global, für alle Agenten) ───────────────────────────
+  tools: {
+    loopDetection: {
+      enabled: true,
+      historySize: 20,
+      detectorCooldownMs: 12000,
+      repeatThreshold: 3,
+      criticalThreshold: 5,
+      detectors: {
+        repeatedFailure: true,
+        knownPollLoop: true,
+        repeatingNoProgress: true,
+      },
+    },
+  },
+
+  // ─── Agenten ─────────────────────────────────────────────────────────────
+  // Jeder Agent bekommt:
+  //   - eigenes agentDir: ~/.openclaw/agents/<id>/  (auto-erstellt)
+  //   - eigene Sessions: ~/.openclaw/agents/<id>/sessions/
+  //   - geteilten Workspace: ~/.openclaw/workspace/
+  //   - geteilte Skills: ~/.openclaw/skills/
+  agents: {
+    defaults: {
+      workspace: "~/.openclaw/workspace",
+    },
+    list: [
+      // ── Koordination ──────────────────────────────────────────────────
+      {
+        id: "forge-orchestrator",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+          fallbacks: [ "openrouter/google/gemini-2.0-flash-exp:free" ],
+        },
+        tools: {
+          // Orchestrator bekommt strengere Loop-Detection
+          loopDetection: {
+            enabled: true,
+            repeatThreshold: 2,
+            criticalThreshold: 4,
+          },
+        },
+      },
+
+      // ── Phase 1: Anforderungen ────────────────────────────────────────
+      {
+        id: "forge-requirements",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/google/gemini-flash-1.5",
+          fallbacks: [ "openrouter/google/gemini-2.5-flash-lite-preview-06-17" ],
+        },
+      },
+      {
+        id: "forge-review",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/deepseek/deepseek-r1",
+          fallbacks: [ "openrouter/deepseek/deepseek-chat" ],
+        },
+      },
+
+      // ── Phase 2: Design ───────────────────────────────────────────────
+      {
+        id: "forge-architekt",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/deepseek/deepseek-r1",
+          fallbacks: [ "openrouter/deepseek/deepseek-chat" ],
+        },
+      },
+      {
+        id: "forge-webdesigner",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/google/gemini-flash-1.5",
+          fallbacks: [ "openrouter/google/gemini-2.5-flash-lite-preview-06-17" ],
+        },
+      },
+
+      // ── Phase 3: Entwicklung ──────────────────────────────────────────
+      {
+        id: "forge-db",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
+        },
+      },
+      {
+        id: "forge-backend",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/deepseek/deepseek-chat",
+          fallbacks: [ "openrouter/deepseek/deepseek-r1" ],
+        },
+      },
+      {
+        id: "forge-frontend",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          // Qwen3 Coder ist kostenlos und sehr stark für Frontend
+          primary: "openrouter/qwen/qwen3-coder:free",
+          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
+        },
+        tools: {
+          loopDetection: {
+            enabled: true,
+            repeatThreshold: 3,
+            criticalThreshold: 6,
+          },
+        },
+      },
+
+      // ── Phase 4: QA & Deploy ──────────────────────────────────────────
+      {
+        id: "forge-qa",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/deepseek/deepseek-chat",
+          fallbacks: [ "openrouter/deepseek/deepseek-r1" ],
+        },
+      },
+      {
+        id: "forge-devops",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
+        },
+      },
+
+      // ── Nach Abschluss ────────────────────────────────────────────────
+      {
+        id: "forge-retro",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/deepseek/deepseek-chat",
+          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
+        },
+      },
+
+      // ── Automatisch (Cron 2x/Woche) ───────────────────────────────────
+      {
+        id: "forge-model-scout",
+        workspace: "~/.openclaw/workspace",
+        model: {
+          primary: "openrouter/google/gemini-flash-1.5",
+          fallbacks: [ "openrouter/google/gemini-2.5-flash-lite-preview-06-17" ],
+        },
+      },
+    ],
+  },
+}

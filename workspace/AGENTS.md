@@ -1,70 +1,85 @@
 # ugly-forge — Agent Workspace
 
-Dieser Workspace wird von OC automatisch in jede Session injiziert.
+Diese Datei wird von OC automatisch in jede Session injiziert.
+Pfad auf Host: ~/.openclaw/workspace/AGENTS.md
+Pfad im Container: /home/node/.openclaw/workspace/AGENTS.md
 
-## Architektur — Wie Agenten kommunizieren
+## Was ist ugly-forge?
 
-### OC-native Kommunikation
-- Agenten nutzen `sessions_send` um Nachrichten zu schicken
-- Agenten nutzen `sessions_list` um aktive Sessions zu entdecken
-- Agenten nutzen `openclaw agent --message` um andere Agenten zu triggern
-- KEIN JSON-Queue auf Filesystem — OC hat das eingebaut
+Eine KI-Softwareschmiede: 12 spezialisierte Agenten bauen gemeinsam
+Webanwendungen — von Requirements bis Deployment.
 
-### Parallelität
-Wegen maxSpawnDepth=2 laufen Agenten SEQUENZIELL mit announce-back:
-- Orchestrator startet Agent A via `openclaw agent --agent [id] --message [task]`
-- Agent A arbeitet, announct Ergebnis zurück
-- Orchestrator startet Agent B wenn A fertig
-- KEINE echten Sub-Sub-Agents — ein Level tiefer max
+## Agenten-Kommunikation (OC-nativ)
 
-### State Management
-Zwei Mechanismen parallel:
-1. **FORGE-INDEX.md** — im Projektordner, lesbar von allen Agenten
-2. **SQLite via exec** — Agenten nutzen bash/exec Tool für DB-Zugriff
+Agenten kommunizieren via OC-eigene Session-Tools:
+- `sessions_list` — aktive Sessions sehen
+- `sessions_send` — Nachricht an anderen Agenten
+- Orchestrator startet Agenten:
+  `exec: openclaw agent --agent [id] --message "[aufgabe]"`
 
-## Agenten-Übersicht
-
-| Agent ID | Skill | Modell | Zuständig für |
-|----------|-------|--------|---------------|
-| forge-orchestrator | forge_orchestrator | Gemini 2.5 Flash-Lite | Koordination, Loop-Wächter |
-| forge-requirements | forge_requirements | Gemini 3 Flash | User Stories, Requirements |
-| forge-review | forge_review | DeepSeek V4 | Quality Gates, Kostenschätzung |
-| forge-architekt | forge_architekt | DeepSeek V4 | Blueprint, Mermaid |
-| forge-webdesigner | forge_webdesigner | Gemini 3 Flash | Style Guide, UX |
-| forge-frontend | forge_frontend | Qwen3 Coder | HTML/CSS/JS, React |
-| forge-backend | forge_backend | DeepSeek V3.2 | API, Business Logik |
-| forge-db | forge_db | Gemini Flash-Lite | Schema, Migrations |
-| forge-qa | forge_qa | DeepSeek V3.2 | Tests, Security Audit |
-| forge-devops | forge_devops | Gemini Flash-Lite | Deploy, nginx, GPG |
-| forge-retro | forge_retro | DeepSeek V3.2 | Analyse, Learnings |
-| forge-model-scout | forge_model_scout | Gemini 3 Flash | Modell-Recherche |
-
-## Pipeline
+## Pipeline (sequenziell wegen maxSpawnDepth=2)
 
 ```
-Sequenziell:
-1. forge-requirements → Review Gate 1 (du freigibst)
-2. forge-architekt + forge-webdesigner (nacheinander)
-3. Review Gate 2 (du freigibst)
-4. forge-db (ZUERST!)
-5. forge-backend + forge-frontend (nacheinander, DB fertig)
-6. forge-qa (Unit → Integration → E2E)
-7. forge-devops
-8. forge-retro
+1.  forge-requirements  → requirements.md erstellen
+2.  forge-review        → Gate 1: Kosten + Qualität
+    ↳ NUTZER-FREIGABE erforderlich
+3.  forge-architekt     → blueprint.md + Mermaid
+4.  forge-webdesigner   → style-guide.md
+5.  forge-review        → Gate 2: Architektur-Check
+    ↳ NUTZER-FREIGABE erforderlich
+6.  forge-db            → schema.sql (IMMER ZUERST!)
+7.  forge-backend       → API + Business Logic
+8.  forge-frontend      → UI Implementation
+9.  forge-qa            → Tests + Security Audit
+10. forge-devops        → Deploy + GPG + Release Tag
+11. forge-retro         → Learnings dokumentieren
 ```
+
+## State Management
+
+Jeder Agent liest UND schreibt:
+1. `FORGE-INDEX.md` im Projektordner (File-basiert, alle sehen es)
+2. SQLite via exec-Tool:
+   `exec: sqlite3 /home/node/forge-db/projects.db "[SQL]"`
+
+## Wichtige Pfade (im Container)
+
+| Was | Pfad |
+|-----|------|
+| Skills | /home/node/.openclaw/skills/ |
+| DB | /home/node/forge-db/projects.db |
+| Workspace | /home/node/.openclaw/workspace/ |
+| Projekte | /home/node/.openclaw/workspace/projects/[name]/ |
+| Web Output | /home/node/www/ (nginx serviert direkt) |
 
 ## Loop-Schutz
-OC hat eingebaute Tool-Loop-Detection (openclaw.json konfiguriert).
-Zusätzlich in Skills: max 3 Fragen-Tiefe, 5min Timeout.
 
-## Wichtige Pfade
-- Skills: `/home/node/forge/workspace/skills/`
-- DB: `/home/node/forge/db/projects.db` (via exec: `sqlite3 /home/node/forge/db/projects.db`)
-- Web: `/home/node/www/` (nginx serviert sofort)
-- Index: `[projektordner]/FORGE-INDEX.md`
+OC hat eingebaute loopDetection (in openclaw.json konfiguriert).
+Zusätzlich in jedem Skill: max 3 Fragen-Tiefe, 5min Timeout.
+Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 
 ## Kritische Regeln
-- DB Agent immer ZUERST in Entwicklungsphase
-- Kein Agent committed Secrets (.env geblockt via Pre-Commit Hook)
-- SQLite Zugriff nur via `exec: sqlite3 /home/node/forge/db/projects.db`
-- Feature-Status immer in FORGE-INDEX.md aktualisieren
+
+1. **DB Agent immer zuerst** — Backend wartet auf Schema
+2. **Kein Code ohne Gate-Freigabe** — Review Gates sind Pflicht
+3. **Secrets nie committen** — Pre-Commit Hook blockiert
+4. **FORGE-INDEX.md aktualisieren** — nach jedem Agenten-Abschluss
+5. **exec für SQLite** — kein direkter DB-Zugriff ohne exec-Tool
+6. **Sessions_send für Kommunikation** — kein File-Queue
+
+## Agenten-IDs
+
+| ID | Rolle | Modell |
+|----|-------|--------|
+| forge-orchestrator | Koordination | Gemini Flash-Lite |
+| forge-requirements | Requirements | Gemini Flash |
+| forge-review | Quality Gates | DeepSeek R1 |
+| forge-architekt | Blueprint | DeepSeek R1 |
+| forge-webdesigner | Style Guide | Gemini Flash |
+| forge-db | DB Schema | Gemini Flash-Lite |
+| forge-backend | API | DeepSeek Chat |
+| forge-frontend | UI | Qwen3 Coder (free) |
+| forge-qa | Tests | DeepSeek Chat |
+| forge-devops | Deploy | Gemini Flash-Lite |
+| forge-retro | Learnings | DeepSeek Chat |
+| forge-model-scout | Modell-Scout | Gemini Flash |
