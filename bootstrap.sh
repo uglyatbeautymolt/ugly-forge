@@ -1,8 +1,7 @@
 #!/bin/bash
 # ugly-forge bootstrap.sh
-# Aktiviert die KI-Softwareschmiede auf einem bestehenden ugly-stack
 # Idempotent -- kann beliebig oft ausgefuehrt werden
-# Ausfuehren als normaler User (nicht root) -- sudo wird intern verwendet wenn noetig
+# Ausfuehren als normaler User -- sudo wird intern verwendet wenn noetig
 
 set -e
 
@@ -41,7 +40,7 @@ install_pkg() {
   elif [ "$(id -u)" = "0" ]; then
     apt-get install -y "$pkg" -qq
   else
-    echo -e "  ${COLOR_YELLOW}sudo-Passwort wird benoetigt fuer $pkg:${COLOR_NC}"
+    echo -e "  ${COLOR_YELLOW}sudo-Passwort benoetigt fuer $pkg:${COLOR_NC}"
     sudo apt-get install -y "$pkg" -qq
   fi
 }
@@ -85,7 +84,7 @@ fi
 echo -e "  v docker compose"
 
 if [ "$(id -u)" != "0" ] && ! groups | grep -q docker; then
-  echo -e "${COLOR_YELLOW}  User nicht in docker-Gruppe. Fix: sudo usermod -aG docker $USER && newgrp docker${COLOR_NC}"
+  echo -e "${COLOR_YELLOW}  User nicht in docker-Gruppe. Fix: sudo usermod -aG docker \$USER && newgrp docker${COLOR_NC}"
 fi
 
 echo -e "${COLOR_GREEN}OK System-Abhaengigkeiten${COLOR_NC}"
@@ -198,10 +197,13 @@ echo -e "${COLOR_GREEN}OK AGENTS.md installiert${COLOR_NC}"
 # ----------------------------------------------------------------
 # 7. OPENCLAW.JSON MERGEN
 #
-# openclaw-forge.json ist jetzt reines JSON (kein JSON5 mehr).
-# Merge via python3 stdlib json -- kein externer Parser noetig.
-# Script wird als temp-Datei geschrieben um Heredoc/Argumente-
-# Probleme zu vermeiden.
+# forge.json Struktur (reines JSON):
+#   { "tools": { "loopDetection": {...} },   <-- Root-Level (OC 2026.4 Schema)
+#     "agents": { "defaults": {...}, "list": [...] } }
+#
+# Merge-Logik:
+#   - tools.loopDetection -> Root-Level der bestehenden openclaw.json
+#   - agents.list         -> bestehende agents.list ergaenzen
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[7/9] Konfiguriere openclaw.json...${COLOR_NC}"
 
@@ -219,7 +221,6 @@ else
   cp "$OC_CONFIG" "$BACKUP"
   echo -e "  + Backup: $BACKUP"
 
-  # Python-Script als temp-Datei -- keine Heredoc/Argumente-Probleme
   MERGE_SCRIPT="/tmp/oc_merge_$$.py"
   cat > "$MERGE_SCRIPT" << PYEOF
 import json, sys
@@ -233,21 +234,20 @@ with open(config_path, 'r') as f:
 with open(forge_path, 'r') as f:
     forge = json.load(f)
 
+# tools.loopDetection auf Root-Level eintragen (OC 2026.4 Schema)
+if 'tools' not in existing:
+    existing['tools'] = {}
+if 'loopDetection' not in existing['tools'] and 'tools' in forge:
+    existing['tools']['loopDetection'] = forge['tools']['loopDetection']
+
 # agents-Struktur sicherstellen
 if 'agents' not in existing:
     existing['agents'] = {}
 
-# defaults.tools.loopDetection hinzufuegen falls fehlend
-forge_loop = forge['agents']['defaults']['tools']['loopDetection']
-ex_defaults = existing['agents'].setdefault('defaults', {})
-ex_tools    = ex_defaults.setdefault('tools', {})
-if 'loopDetection' not in ex_tools:
-    ex_tools['loopDetection'] = forge_loop
-
-# agents.list: forge-Agenten hinzufuegen (keine Duplikate)
-forge_agents = forge['agents']['list']
-ex_list      = existing['agents'].setdefault('list', [])
-ex_ids       = {a.get('id') for a in ex_list}
+# agents.list: forge-Agenten hinzufuegen (keine Duplikate nach id)
+forge_agents = forge.get('agents', {}).get('list', [])
+ex_list = existing['agents'].setdefault('list', [])
+ex_ids  = {a.get('id') for a in ex_list}
 
 added = 0
 for agent in forge_agents:
@@ -402,7 +402,8 @@ fi
 
 echo ""
 echo -e "Naechste Schritte:"
-echo -e "  1. Agenten: openclaw agents list"
-echo -e "  2. Starten: openclaw agent --agent forge-orchestrator --message 'Hallo'"
-echo -e "  3. Dashboard: bash $FORGE_DIR/dashboard/build.sh"
+echo -e "  1. OC Config pruefen: docker compose -f $STACK_DIR/docker-compose.yml exec openclaw node dist/index.js config validate"
+echo -e "  2. Agenten listen:    docker compose -f $STACK_DIR/docker-compose.yml exec openclaw node dist/index.js agents list"
+echo -e "  3. Forge starten:     docker compose -f $STACK_DIR/docker-compose.yml exec -it openclaw node dist/index.js agent --agent forge-orchestrator --message 'Hallo'"
+echo -e "  4. Dashboard:         bash $FORGE_DIR/dashboard/build.sh"
 echo ""
