@@ -202,105 +202,82 @@ echo -e "${COLOR_GREEN}✅ AGENTS.md → $OC_WORKSPACE/AGENTS.md${COLOR_NC}"
 echo -e "${COLOR_GREEN}✅ FORGE-INDEX-template.md installiert${COLOR_NC}"
 
 # ─────────────────────────────────────────────────────────────
-# 7. OPENCLAW.JSON — sicher mergen
+# 7. OPENCLAW.JSON — automatisch mergen
 #
-# Strategie: KEIN Parsen der bestehenden Datei.
-# Stattdessen: forge-Agenten als Text-Block direkt vor die letzte
-# schliessende Klammer } einfügen. Das funktioniert unabhängig
-# vom genauen Format (JSON oder JSON5).
+# Strategie: Beide Dateien mit Python stdlib json lesen.
+# openclaw.json ist reines JSON (kein JSON5).
+# openclaw-forge.json ist JSON5 — wir strippen Kommentare vor dem Parsen.
+# Dann deep-merge: bestehende Werte behalten, forge-Agenten hinzufügen.
 # ─────────────────────────────────────────────────────────────
 echo -e "${COLOR_YELLOW}[7/9] Konfiguriere openclaw.json...${COLOR_NC}"
 
 if [ ! -f "$OC_CONFIG" ]; then
-  # Neu anlegen
   cp "$FORGE_DIR/workspace/openclaw-forge.json" "$OC_CONFIG"
-  echo -e "${COLOR_GREEN}✅ openclaw.json erstellt (JSON5, 12 Agenten)${COLOR_NC}"
+  echo -e "${COLOR_GREEN}✅ openclaw.json erstellt (12 Agenten)${COLOR_NC}"
 
 elif grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
   echo -e "  ✓ forge-Agenten bereits in openclaw.json — überspringe"
 
 else
-  echo -e "  Füge forge-Agenten in bestehende openclaw.json ein..."
+  echo -e "  Merge forge-Agenten in bestehende openclaw.json..."
 
-  # Backup
   BACKUP="${OC_CONFIG}.backup-$(date +%Y%m%d-%H%M%S)"
   cp "$OC_CONFIG" "$BACKUP"
   echo -e "  ${COLOR_GREEN}+ Backup: $BACKUP${COLOR_NC}"
 
-  # Forge-Agenten als JSON-Block vorbereiten (reines JSON, kein JSON5)
-  # Wir lesen die Agent-IDs und Konfigurationen direkt aus der forge-json
-  # und bauen den inject-Block in Python — aber wir lesen NUR die forge-Datei (JSON5)
-  # und schreiben Text-Injection in die bestehende Datei
-  python3 << PYEOF
-import re, sys
+  python3 - "$OC_CONFIG" "$FORGE_DIR/workspace/openclaw-forge.json" << 'PYEOF'
+import json, re, sys
 
-forge_path = '$FORGE_DIR/workspace/openclaw-forge.json'
-config_path = '$OC_CONFIG'
+config_path = sys.argv[1]
+forge_path  = sys.argv[2]
 
-# forge-json lesen und JSON5 → JSON
-with open(forge_path, 'r') as f:
-    forge_raw = f.read()
-
-# JSON5 Kommentare + trailing commas + unquoted keys bereinigen
-def to_json(text):
-    text = re.sub(r'/\*[\s\S]*?\*/', '', text)           # Block-Kommentare
-    text = re.sub(r'(?m)^\s*//.*$', '', text)             # Zeilen-Kommentare
-    text = re.sub(r',(\s*[}\]])', r'\1', text)            # Trailing commas
-    text = re.sub(r'([{,]\s*)([a-zA-Z_]\w*)(\s*:)', r'\1"\2"\3', text)  # Unquoted keys
-    return text
-
-import json
-try:
-    forge = json.loads(to_json(forge_raw))
-except Exception as e:
-    print(f"ERR: forge-json parse: {e}", file=sys.stderr)
-    sys.exit(1)
-
-# Agenten-Liste aus forge extrahieren
-agents = forge.get('agents', {}).get('list', [])
-if not agents:
-    print("ERR: Keine Agenten in forge-config gefunden", file=sys.stderr)
-    sys.exit(1)
-
-# Agents als JSON-String bauen
-agents_json = json.dumps(agents, indent=4, ensure_ascii=False)
-# Einrückung anpassen (2 spaces)
-agents_json = '\n'.join('    ' + line for line in agents_json.splitlines())
-
-# loopDetection Block
-loop_detection = forge.get('agents', {}).get('defaults', {}).get('tools', {}).get('loopDetection', {})
-loop_json = json.dumps(loop_detection, indent=4, ensure_ascii=False)
-
-# Bestehende openclaw.json als Text lesen
+# --- bestehende openclaw.json lesen (reines JSON) ---
 with open(config_path, 'r') as f:
-    existing = f.read()
+    existing = json.load(f)
 
-# Prüfen ob 'agents' bereits vorhanden
-if '"agents"' in existing or "'agents'" in existing or 'agents:' in existing or 'agents :' in existing:
-    # agents-Block existiert — agents.list suchen und Einträge anhängen
-    # Suche die letzte ] vor der abschliessenden } des agents-Blocks
-    # Sichere Methode: forge-Agenten VOR der letzten ] im agents.list einsetzen
-    # Wir suchen nach dem Muster "list": [ ... ] und fügen vor ] ein
-    inject = ',\n' + agents_json[1:-1]  # ohne äussere [ ]
-    # Finde letzte ] in der Datei (Ende von agents.list)
-    last_bracket = existing.rfind(']')
-    if last_bracket == -1:
-        print("ERR: Kein ] gefunden in openclaw.json", file=sys.stderr)
-        sys.exit(1)
-    existing = existing[:last_bracket] + inject + '\n' + existing[last_bracket:]
-else:
-    # Kein agents-Block — gesamten forge agents-Block vor letzter } einfügen
-    inject = ',\n  "agents": {\n    "defaults": {\n      "workspace": "~/.openclaw/workspace",\n      "tools": {\n        "loopDetection": ' + loop_json + '\n      }\n    },\n    "list": ' + json.dumps(agents, indent=4, ensure_ascii=False) + '\n  }'
-    last_brace = existing.rfind('}')
-    if last_brace == -1:
-        print("ERR: Kein } gefunden in openclaw.json", file=sys.stderr)
-        sys.exit(1)
-    existing = existing[:last_brace] + inject + '\n}'
+# --- forge JSON5 → JSON: nur Kommentare und trailing commas entfernen ---
+with open(forge_path, 'r') as f:
+    raw = f.read()
+
+# Block-Kommentare /* ... */
+raw = re.sub(r'/\*[\s\S]*?\*/', '', raw)
+# Zeilen-Kommentare // am Anfang der Zeile (nach optionalem Whitespace)
+raw = re.sub(r'(?m)^\s*//[^\n]*\n?', '', raw)
+# Trailing commas vor } oder ]
+raw = re.sub(r',(\s*[}\]])', r'\1', raw)
+
+forge = json.loads(raw)
+
+# --- Merge: agents.list hinzufügen ---
+# Sicherstellen dass agents-Struktur vorhanden
+if 'agents' not in existing:
+    existing['agents'] = {}
+
+# defaults: loopDetection hinzufügen falls nicht vorhanden
+forge_defaults = forge.get('agents', {}).get('defaults', {})
+ex_defaults = existing['agents'].setdefault('defaults', {})
+
+if 'tools' not in ex_defaults:
+    ex_defaults['tools'] = {}
+if 'loopDetection' not in ex_defaults['tools']:
+    ex_defaults['tools']['loopDetection'] = forge_defaults.get('tools', {}).get('loopDetection', {})
+
+# list: forge-Agenten hinzufügen (keine Duplikate nach id)
+forge_agents = forge.get('agents', {}).get('list', [])
+existing_list = existing['agents'].setdefault('list', [])
+existing_ids  = {a.get('id') for a in existing_list}
+
+added = 0
+for agent in forge_agents:
+    if agent.get('id') not in existing_ids:
+        existing_list.append(agent)
+        added += 1
 
 with open(config_path, 'w') as f:
-    f.write(existing)
+    json.dump(existing, f, indent=2, ensure_ascii=False)
+    f.write('\n')
 
-print(f"OK: {len(agents)} Agenten eingefügt")
+print(f"✅ {added} forge-Agenten eingetragen, {len(existing_list)} total in list")
 PYEOF
 
   if [ $? -ne 0 ]; then
@@ -309,7 +286,7 @@ PYEOF
     exit 1
   fi
 
-  echo -e "${COLOR_GREEN}✅ openclaw.json aktualisiert — 12 forge-Agenten eingetragen${COLOR_NC}"
+  echo -e "${COLOR_GREEN}✅ openclaw.json erfolgreich gemergt${COLOR_NC}"
 fi
 
 # ─────────────────────────────────────────────────────────────
