@@ -1,160 +1,133 @@
-// ugly-forge Agenten-Konfiguration
-// JSON5 Format - Kommentare und trailing commas erlaubt
-//
-// VERWENDUNG:
-// Falls openclaw.json noch nicht existiert: wird als openclaw.json kopiert
-// Falls openclaw.json bereits existiert: agents.list manuell eintragen
-//
-// WICHTIG: model.primary Syntax verwenden!
-// WICHTIG: tools.loopDetection gehoert unter agents.defaults oder agents.list[].tools
-//          NICHT auf Root-Level 'tools:' - das ist ein anderes Schema-Feld!
-//
 {
-  // Agenten-Konfiguration
-  agents: {
-    defaults: {
-      workspace: "~/.openclaw/workspace",
-      // Loop-Detection fuer alle Agenten als Default
-      tools: {
-        loopDetection: {
-          enabled: true,
-          historySize: 20,
-          detectorCooldownMs: 12000,
-          repeatThreshold: 3,
-          criticalThreshold: 5,
-          detectors: {
-            repeatedFailure: true,
-            knownPollLoop: true,
-            repeatingNoProgress: true,
-          },
-        },
-      },
+  "agents": {
+    "defaults": {
+      "workspace": "~/.openclaw/workspace",
+      "tools": {
+        "loopDetection": {
+          "enabled": true,
+          "historySize": 20,
+          "detectorCooldownMs": 12000,
+          "repeatThreshold": 3,
+          "criticalThreshold": 5,
+          "detectors": {
+            "repeatedFailure": true,
+            "knownPollLoop": true,
+            "repeatingNoProgress": true
+          }
+        }
+      }
     },
-    list: [
-      // -- Koordination --
+    "list": [
       {
-        id: "forge-orchestrator",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-          fallbacks: [ "openrouter/google/gemini-2.0-flash-exp:free" ],
+        "id": "forge-orchestrator",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+          "fallbacks": ["openrouter/google/gemini-2.0-flash-exp:free"]
         },
-        tools: {
-          // Orchestrator: strengere Loop-Detection
-          loopDetection: {
-            enabled: true,
-            repeatThreshold: 2,
-            criticalThreshold: 4,
-          },
-        },
-      },
-
-      // -- Phase 1: Anforderungen --
-      {
-        id: "forge-requirements",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/google/gemini-flash-1.5",
-          fallbacks: [ "openrouter/google/gemini-2.5-flash-lite-preview-06-17" ],
-        },
+        "tools": {
+          "loopDetection": {
+            "enabled": true,
+            "repeatThreshold": 2,
+            "criticalThreshold": 4
+          }
+        }
       },
       {
-        id: "forge-review",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/deepseek/deepseek-r1",
-          fallbacks: [ "openrouter/deepseek/deepseek-chat" ],
-        },
-      },
-
-      // -- Phase 2: Design --
-      {
-        id: "forge-architekt",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/deepseek/deepseek-r1",
-          fallbacks: [ "openrouter/deepseek/deepseek-chat" ],
-        },
+        "id": "forge-requirements",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/google/gemini-flash-1.5",
+          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite-preview-06-17"]
+        }
       },
       {
-        id: "forge-webdesigner",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/google/gemini-flash-1.5",
-          fallbacks: [ "openrouter/google/gemini-2.5-flash-lite-preview-06-17" ],
-        },
-      },
-
-      // -- Phase 3: Entwicklung --
-      {
-        id: "forge-db",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
-        },
+        "id": "forge-review",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/deepseek/deepseek-r1",
+          "fallbacks": ["openrouter/deepseek/deepseek-chat"]
+        }
       },
       {
-        id: "forge-backend",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/deepseek/deepseek-chat",
-          fallbacks: [ "openrouter/deepseek/deepseek-r1" ],
-        },
+        "id": "forge-architekt",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/deepseek/deepseek-r1",
+          "fallbacks": ["openrouter/deepseek/deepseek-chat"]
+        }
       },
       {
-        id: "forge-frontend",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/qwen/qwen3-coder:free",
-          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
-        },
-        tools: {
-          loopDetection: {
-            enabled: true,
-            repeatThreshold: 3,
-            criticalThreshold: 6,
-          },
-        },
-      },
-
-      // -- Phase 4: QA & Deploy --
-      {
-        id: "forge-qa",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/deepseek/deepseek-chat",
-          fallbacks: [ "openrouter/deepseek/deepseek-r1" ],
-        },
+        "id": "forge-webdesigner",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/google/gemini-flash-1.5",
+          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite-preview-06-17"]
+        }
       },
       {
-        id: "forge-devops",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
-        },
+        "id": "forge-db",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+        }
       },
-
-      // -- Nach Abschluss --
       {
-        id: "forge-retro",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/deepseek/deepseek-chat",
-          fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
-        },
+        "id": "forge-backend",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/deepseek/deepseek-chat",
+          "fallbacks": ["openrouter/deepseek/deepseek-r1"]
+        }
       },
-
-      // -- Automatisch via Cron (2x/Woche) --
       {
-        id: "forge-model-scout",
-        workspace: "~/.openclaw/workspace",
-        model: {
-          primary: "openrouter/google/gemini-flash-1.5",
-          fallbacks: [ "openrouter/google/gemini-2.5-flash-lite-preview-06-17" ],
+        "id": "forge-frontend",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/qwen/qwen3-coder:free",
+          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
         },
+        "tools": {
+          "loopDetection": {
+            "enabled": true,
+            "repeatThreshold": 3,
+            "criticalThreshold": 6
+          }
+        }
       },
-    ],
-  },
+      {
+        "id": "forge-qa",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/deepseek/deepseek-chat",
+          "fallbacks": ["openrouter/deepseek/deepseek-r1"]
+        }
+      },
+      {
+        "id": "forge-devops",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+        }
+      },
+      {
+        "id": "forge-retro",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/deepseek/deepseek-chat",
+          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+        }
+      },
+      {
+        "id": "forge-model-scout",
+        "workspace": "~/.openclaw/workspace",
+        "model": {
+          "primary": "openrouter/google/gemini-flash-1.5",
+          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite-preview-06-17"]
+        }
+      }
+    ]
+  }
 }
