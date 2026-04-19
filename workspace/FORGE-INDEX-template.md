@@ -33,16 +33,16 @@
 ### Gate 1 — Requirements
 - Status: pending
 - Freigabe durch Nutzer: nein
-- Kostensch\u00e4tzung: $0.00
+- Kostenschätzung: $0.00
 
 ### Gate 2 — Architektur
 - Status: pending
 - Freigabe durch Nutzer: nein
-- Angepasste Sch\u00e4tzung: $0.00
+- Angepasste Schätzung: $0.00
 
 ## Features
 
-| ID | Feature | Status | Priorit\u00e4t |
+| ID | Feature | Status | Priorität |
 |----|---------|--------|----------|
 | FORGE-1 | [Feature-Name] | planned | P0 |
 
@@ -52,4 +52,4 @@
 
 ## Letzte Kommunikation
 
-(Wird von Agenten automatisch erg\u00e4nzt)
+(Wird von Agenten automatisch ergänzt)
