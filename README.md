@@ -32,14 +32,20 @@ cd ugly-forge
 bash bootstrap.sh
 ```
 
-bootstrap.sh:
-- Prüft und installiert fehlende Pakete (`sqlite3`, `curl`, `python3`) via sudo
-- Erwartet `docker` und `docker compose` als vorhanden
-- Sucht ugly-stack automatisch in `../VPS_Bootstrap` oder `../ugly-stack`
+bootstrap.sh erledigt automatisch:
+- Fehlende Pakete prüfen und installieren (`sqlite3`, `curl`, `python3`) via sudo
+- Skills nach `~/.openclaw/skills/` kopieren (für alle Agenten sichtbar)
+- `AGENTS.md` in OC Workspace installieren (wird automatisch injiziert)
+- `openclaw.json` mit 12 Agenten erstellen
+- SQLite DB mit 6 Tabellen anlegen
+- Volume Mount für DB in docker-compose.yml ergänzen
+- OpenClaw neu starten
+
+`docker` und `docker compose` müssen bereits installiert sein.
 
 Nach erfolgreichem Bootstrap:
 ```
-🦞🔨 ugly-forge aktiv! 12 Agenten bereit.
+🦞🔨 ugly-forge Bootstrap abgeschlossen! 12 Agenten bereit.
 ```
 
 ---
@@ -54,6 +60,26 @@ Nach erfolgreichem Bootstrap:
 
 ---
 
+## Architektur (OC-konform)
+
+### Wie Agenten kommunizieren
+- `sessions_list` / `sessions_send` — OC-native Session-Tools
+- Orchestrator startet Agenten via `openclaw agent --agent [id]`
+- **Sequenziell** wegen maxSpawnDepth=2 (kein echtes Parallel-Spawning)
+
+### Skills
+Liegen in `~/.openclaw/skills/` — shared, für alle Agenten sichtbar.
+Precedence: `workspace/skills/` > `~/.openclaw/skills/` > bundled
+
+### State
+1. `FORGE-INDEX.md` im Projektordner — lesbar von allen Agenten
+2. SQLite via `exec: sqlite3 /home/node/forge-db/projects.db`
+
+### Loop-Schutz
+OC eingebaut (`loopDetection` in openclaw.json) + manuell in Skills.
+
+---
+
 ## Dashboard
 
 ```bash
@@ -62,6 +88,7 @@ bash dashboard/build.sh
 ```
 
 Erreichbar unter `dashboard.beautymolt.com` nach nginx-Konfiguration.
+4 Ansichten: Live Monitor, Scrum Board, Projekte, Team.
 
 ---
 
@@ -71,7 +98,7 @@ Erreichbar unter `dashboard.beautymolt.com` nach nginx-Konfiguration.
 bash uninstall.sh
 ```
 
-ugle-stack läuft unverändert weiter.
+ugly-stack läuft unverändert weiter.
 
 ---
 
@@ -79,18 +106,31 @@ ugle-stack läuft unverändert weiter.
 
 | Agent | Modell | Aufgabe |
 |---|---|---|
-| Orchestrator | Gemini Flash-Lite | Koordination, Loop-Wächter |
-| Requirements | Gemini Flash | User Stories, ACs |
-| Review | DeepSeek R1 | Quality Gates, Kosten |
-| Architekt | DeepSeek R1 | System-Design, Blueprint |
-| Webdesigner | Gemini Flash | Style Guide, UX |
-| DB | Gemini Flash-Lite | Schema, Migrations |
-| Backend | DeepSeek Chat | Business Logik, API |
-| Frontend | Qwen3 Coder (free) | HTML/CSS/JS, React |
-| QA | DeepSeek Chat | Tests, Security Audit |
-| DevOps | Gemini Flash-Lite | Deploy, nginx, GPG |
-| Retro | DeepSeek Chat | Analyse, Learnings |
-| Model-Scout | Gemini Flash | Modell-Recherche |
+| forge-orchestrator | Gemini Flash-Lite | Koordination, Loop-Wächter |
+| forge-requirements | Gemini Flash | User Stories, ACs |
+| forge-review | DeepSeek R1 | Quality Gates, Kosten |
+| forge-architekt | DeepSeek R1 | System-Design, Blueprint |
+| forge-webdesigner | Gemini Flash | Style Guide, UX |
+| forge-db | Gemini Flash-Lite | Schema, Migrations (ZUERST!) |
+| forge-backend | DeepSeek Chat | Business Logik, API |
+| forge-frontend | Qwen3 Coder (free) | HTML/CSS/JS, React |
+| forge-qa | DeepSeek Chat | Tests, Security Audit |
+| forge-devops | Gemini Flash-Lite | Deploy, nginx, GPG |
+| forge-retro | DeepSeek Chat | Analyse, Learnings |
+| forge-model-scout | Gemini Flash | Modell-Recherche (Cron) |
+
+---
+
+## Wichtige Technische Details
+
+| Was | Detail |
+|-----|--------|
+| SKILL.md descriptions | Immer in `"..."` — unquoted Colons crashen den Parser (silent drop!) |
+| openclaw.json Syntax | JSON5, `model.primary` nicht `model` direkt |
+| `tools.loopDetection` | Unter `agents.defaults.tools` — nicht auf Root-Level |
+| SQLite Pfad (Container) | `/home/node/forge-db/projects.db` |
+| Skills Pfad | `~/.openclaw/skills/` (shared), nicht im Workspace |
+| AGENTS.md Pfad | `~/.openclaw/workspace/AGENTS.md` (auto-injiziert) |
 
 ---
 

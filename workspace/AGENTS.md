@@ -17,7 +17,10 @@ Agenten kommunizieren via OC-eigene Session-Tools:
 - Orchestrator startet Agenten:
   `exec: openclaw agent --agent [id] --message "[aufgabe]"`
 
-## Pipeline (sequenziell wegen maxSpawnDepth=2)
+**Wichtig:** Wegen maxSpawnDepth=2 läuft die Pipeline SEQUENZIELL.
+Kein echtes Parallel-Spawning. Agenten starten nacheinander mit announce-back.
+
+## Pipeline (sequenziell)
 
 ```
 1.  forge-requirements  → requirements.md erstellen
@@ -46,7 +49,7 @@ Jeder Agent liest UND schreibt:
 
 | Was | Pfad |
 |-----|------|
-| Skills | /home/node/.openclaw/skills/ |
+| Skills (shared) | /home/node/.openclaw/skills/ |
 | DB | /home/node/forge-db/projects.db |
 | Workspace | /home/node/.openclaw/workspace/ |
 | Projekte | /home/node/.openclaw/workspace/projects/[name]/ |
@@ -54,7 +57,8 @@ Jeder Agent liest UND schreibt:
 
 ## Loop-Schutz
 
-OC hat eingebaute loopDetection (in openclaw.json konfiguriert).
+OC hat eingebaute loopDetection (konfiguriert in openclaw.json unter
+agents.defaults.tools.loopDetection).
 Zusätzlich in jedem Skill: max 3 Fragen-Tiefe, 5min Timeout.
 Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 
@@ -65,7 +69,8 @@ Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 3. **Secrets nie committen** — Pre-Commit Hook blockiert
 4. **FORGE-INDEX.md aktualisieren** — nach jedem Agenten-Abschluss
 5. **exec für SQLite** — kein direkter DB-Zugriff ohne exec-Tool
-6. **Sessions_send für Kommunikation** — kein File-Queue
+6. **sessions_send für Kommunikation** — kein File-Queue
+7. **SKILL.md descriptions in Anführungszeichen** — unquoted Colons crashen den Parser
 
 ## Agenten-IDs
 
@@ -76,10 +81,19 @@ Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 | forge-review | Quality Gates | DeepSeek R1 |
 | forge-architekt | Blueprint | DeepSeek R1 |
 | forge-webdesigner | Style Guide | Gemini Flash |
-| forge-db | DB Schema | Gemini Flash-Lite |
+| forge-db | DB Schema (ZUERST!) | Gemini Flash-Lite |
 | forge-backend | API | DeepSeek Chat |
 | forge-frontend | UI | Qwen3 Coder (free) |
 | forge-qa | Tests | DeepSeek Chat |
 | forge-devops | Deploy | Gemini Flash-Lite |
 | forge-retro | Learnings | DeepSeek Chat |
-| forge-model-scout | Modell-Scout | Gemini Flash |
+| forge-model-scout | Modell-Scout (Cron) | Gemini Flash |
+
+## openclaw.json Technische Details
+
+- Syntax: JSON5 (Kommentare erlaubt)
+- Model: `model.primary` nicht `model` direkt
+- loopDetection: unter `agents.defaults.tools.loopDetection` (NICHT Root-Level)
+- Skills: in `~/.openclaw/skills/` shared für alle Agenten
+- Agenten teilen Workspace: `~/.openclaw/workspace/`
+- Eigenes agentDir pro Agent: `~/.openclaw/agents/[id]/`
