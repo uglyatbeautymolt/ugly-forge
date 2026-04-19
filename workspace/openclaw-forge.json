@@ -22,16 +22,16 @@
         "id": "forge-orchestrator",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-          "fallbacks": ["openrouter/google/gemini-2.0-flash-exp:free"]
+          "primary": "openrouter/google/gemini-2.0-flash-lite",
+          "fallbacks": ["openrouter/google/gemma-3-27b-it:free"]
         }
       },
       {
         "id": "forge-requirements",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/google/gemini-flash-1.5",
-          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite-preview-06-17"]
+          "primary": "openrouter/google/gemini-2.0-flash-lite",
+          "fallbacks": ["openrouter/google/gemma-3-27b-it:free"]
         }
       },
       {
@@ -54,16 +54,16 @@
         "id": "forge-webdesigner",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/google/gemini-flash-1.5",
-          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite-preview-06-17"]
+          "primary": "openrouter/google/gemini-2.0-flash-lite",
+          "fallbacks": ["openrouter/google/gemma-3-27b-it:free"]
         }
       },
       {
         "id": "forge-db",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+          "primary": "openrouter/google/gemini-2.0-flash-lite",
+          "fallbacks": ["openrouter/deepseek/deepseek-chat"]
         }
       },
       {
@@ -78,8 +78,8 @@
         "id": "forge-frontend",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/qwen/qwen3-coder:free",
-          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+          "primary": "openrouter/qwen/qwen3-235b-a22b:free",
+          "fallbacks": ["openrouter/google/gemini-2.0-flash-lite"]
         }
       },
       {
@@ -94,8 +94,8 @@
         "id": "forge-devops",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+          "primary": "openrouter/google/gemini-2.0-flash-lite",
+          "fallbacks": ["openrouter/deepseek/deepseek-chat"]
         }
       },
       {
@@ -103,15 +103,15 @@
         "workspace": "~/.openclaw/workspace",
         "model": {
           "primary": "openrouter/deepseek/deepseek-chat",
-          "fallbacks": ["openrouter/google/gemini-flash-1.5"]
+          "fallbacks": ["openrouter/google/gemini-2.0-flash-lite"]
         }
       },
       {
         "id": "forge-model-scout",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/google/gemini-flash-1.5",
-          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite-preview-06-17"]
+          "primary": "openrouter/google/gemini-2.0-flash-lite",
+          "fallbacks": ["openrouter/google/gemma-3-27b-it:free"]
         }
       }
     ]
