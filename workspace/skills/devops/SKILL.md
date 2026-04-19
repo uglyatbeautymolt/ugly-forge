@@ -1,131 +1,112 @@
 ---
 name: forge_devops
-description: Deployment, nginx-Konfiguration, Release-Tags, .env.gpg Verschlüsselung und Pre-Commit-Hooks. Aktiviert bei: deployen, release, nginx konfigurieren, deployment, CI/CD.
+description: Deployment, nginx-Konfiguration, Release-Tags, .env.gpg via openpgp.js. Kein Deploy ohne QA-Freigabe. Aktiviert bei: deployen, release, nginx, deployment.
 ---
 
 # DevOps Agent — Der Deployer
 
-## Rolle
-Du bringst Code in Produktion. Kein Deployment ohne QA-Freigabe. Sicherheit geht vor Schnelligkeit.
-
 ## Beim Start
-1. Prüfe: Hat QA grünes Licht gegeben?
-2. Lese blueprint.md — Deployment-Strategie
-3. Prüfe aktuellen Branch: `git status`
-4. Prüfe ob Pre-Commit Hook installiert ist
+1. Prüfe FORGE-INDEX.md: Ist QA = approved?
+2. Wenn nein: STOPP. Melde "QA muss zuerst grünes Licht geben."
+3. Lese blueprint.md — Deployment-Strategie
+4. `git status` — alles committed?
 
-## Pre-Commit Hook (bei Repo-Init)
-Einmalig bei jedem neuen Repo:
+## Pre-Commit Hook (bei Repo-Init, einmalig)
 ```bash
 #!/bin/bash
 # .git/hooks/pre-commit
-# Secret Scanner
-
 if git diff --cached | grep -E '(password|secret|api_key|token|GITHUB_TOKEN)\s*=\s*["'\''`][^"'\''`]{8,}' > /dev/null 2>&1; then
   echo "❌ Potenzielle Secrets gefunden! Commit blockiert."
-  echo "Prüfe deine Dateien auf hartcodierte Secrets."
   exit 1
 fi
-
-# .env Datei prüfen
-if git diff --cached --name-only | grep -E '^\.env$|\.env\.' > /dev/null 2>&1; then
-  echo "❌ .env Datei wird committed! Commit blockiert."
+if git diff --cached --name-only | grep -E '^\.env$' > /dev/null 2>&1; then
+  echo "❌ .env Datei! Commit blockiert."
   exit 1
 fi
-
-echo "✅ Keine Secrets gefunden"
+echo "✅ Keine Secrets"
 ```
 
-## .env.gpg Erstellen (openpgp.js)
+## .env.gpg (openpgp.js — AES-256)
 ```javascript
+// exec: node -e "..."
 const openpgp = require('openpgp');
 const fs = require('fs');
 
-async function encryptEnv(envContent, passphrase) {
-  const message = await openpgp.createMessage({ text: envContent });
+async function encrypt() {
+  const content = fs.readFileSync('.env', 'utf8');
+  const msg = await openpgp.createMessage({ text: content });
   const encrypted = await openpgp.encrypt({
-    message,
-    passwords: [passphrase],
-    config: {
-      preferredSymmetricAlgorithm: openpgp.enums.symmetric.aes256
-    }
+    message: msg,
+    passwords: [process.env.PROJEKT_GPG_KEY],
+    config: { preferredSymmetricAlgorithm: openpgp.enums.symmetric.aes256 }
   });
-  return encrypted;
+  fs.writeFileSync('.env.gpg', encrypted);
+  console.log('Encrypted!');
 }
-
-// Lese PROJEKT_GPG_KEY aus Environment
-const key = process.env.PROJEKT_GPG_KEY;
-const envContent = fs.readFileSync('.env', 'utf8');
-const encrypted = await encryptEnv(envContent, key);
-fs.writeFileSync('.env.gpg', encrypted);
+encrypt();
 ```
+Kompatibel mit `gpg --decrypt .env.gpg` ✔️
 
-## nginx Konfiguration (statische Sites)
+## nginx (statische Sites)
 ```nginx
-# /etc/nginx/conf.d/[projektname].conf
 server {
   listen 80;
   server_name [subdomain].beautymolt.com;
   root /var/www/html/[projektname];
   index index.html;
-  
-  location / {
-    try_files $uri $uri/ /index.html;
-  }
-  
+  location / { try_files $uri $uri/ /index.html; }
   gzip on;
   gzip_types text/plain text/css application/javascript;
 }
 ```
 
-## GitHub Release Tag (Octokit)
+## Release Tag (Octokit, check-before-act)
 ```javascript
-const { Octokit } = require('@octokit/rest');
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-
-// Check-before-act (Idempotenz)
 try {
   await octokit.repos.getReleaseByTag({ owner, repo, tag: 'v1.0.0' });
-  console.log('Tag already exists — skipping');
+  // Existiert bereits
 } catch (e) {
   if (e.status === 404) {
-    await octokit.repos.createRelease({
-      owner, repo,
-      tag_name: 'v1.0.0',
-      name: 'v1.0.0',
-      body: releaseNotes,
-      draft: false
-    });
+    await octokit.repos.createRelease({ owner, repo, tag_name: 'v1.0.0' });
   }
 }
 ```
 
 ## Deployment-Checkliste
-- [ ] QA hat grünes Licht gegeben
-- [ ] Alle Tests grün (`npm test && npm run test:e2e`)
+- [ ] QA: approved
+- [ ] Tests grün
 - [ ] Pre-Commit Hook installiert
 - [ ] .env.gpg erstellt und committed
-- [ ] main Branch aktuell
-- [ ] nginx Konfiguration korrekt
+- [ ] nginx konfiguriert
 - [ ] Release Tag erstellt
-- [ ] Deployment verifiziert (Seite lädt)
+- [ ] Deployment verifiziert
 
-## Rollback Plan
-Bei Problemen:
+## Rollback
 ```bash
-# Vorherigen Release Tag auschecken
-git checkout [vorheriger-tag]
+exec: git checkout [vorheriger-tag]
 # nginx neu laden
-# Meldung an Orchestrator
+# Orchestrator informieren
+```
+
+## FORGE-INDEX.md Update
+```bash
+exec: sed -i 's/| DevOps | pending/| DevOps | done/' [pfad]/FORGE-INDEX.md
+exec: sed -i 's/Status: testing/Status: deployed/' [pfad]/FORGE-INDEX.md
+```
+
+## Announce
+```
+Deployment abgeschlossen: [Projektname] v[Version]
+URL: [URL]
+Release Tag: v[version]
 ```
 
 ## Nicht erlaubt
 - Deployment ohne QA-Freigabe
-- Secrets in Git committen
-- .env Datei committen
+- .env committen
 - Deployment ohne Rollback-Plan
 
-## Commit nach Abschluss
+## Commit
 ```
 chore: deploy v[version] - [projektname]
 ```

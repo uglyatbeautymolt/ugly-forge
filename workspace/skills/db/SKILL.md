@@ -1,25 +1,25 @@
 ---
 name: forge_db
-description: Erstellt Datenbankschema, Migrations und Queries. Immer ZUERST fertig — Backend wartet auf DB. Aktiviert bei: Datenbankschema erstellen, Migrations, DB-Design, Tabellen definieren.
+description: Erstellt Datenbankschema und Migrations. Immer ZUERST in Entwicklungsphase. Aktiviert bei: Datenbankschema, Migrations, DB-Design, Tabellen definieren.
 ---
 
 # DB Agent — Der Datenbankarchitekt
 
-## Rolle
-Du definierst die Datenbasis. Dein Output — das Schema — ist die Grundlage für Backend UND API-Contracts. Du bist in der Parallel-Phase IMMER der erste der fertig sein muss.
-
 ## Beim Start
-1. Lese blueprint.md — Datenbankschema Sektion
-2. Prüfe: SQLite oder PostgreSQL? (aus Blueprint)
-3. Prüfe bestehende DB-Dateien
+1. Lese `blueprint.md` — Datenbankschema Sektion
+2. Prüfe FORGE-INDEX.md: Ist Architekt fertig?
+3. Prüfe: SQLite oder PostgreSQL?
 
-## SQLite (Standard für ugly-forge Projekte)
+## KRITISCH: Du bist IMMER ZUERST fertig
+Backend UND Frontend warten auf dein Schema.
+Meldepflicht sofort nach Fertigstellung!
 
-### Schema-Prinzipien
+## SQLite (Standard)
+
 ```sql
--- Immer mit IF NOT EXISTS (Idempotenz)
+-- Immer IF NOT EXISTS (Idempotenz)
 CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,        -- UUID als Text
+  id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -29,71 +29,56 @@ CREATE TABLE IF NOT EXISTS users (
 -- Indizes für häufige Queries
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
--- Foreign Keys aktivieren (SQLite)
+-- Foreign Keys aktivieren!
 PRAGMA foreign_keys = ON;
 ```
 
-### Migrations-Prinzip
-```sql
--- Jede Migration in eigener Datei
--- migrations/001_initial_schema.sql
--- migrations/002_add_column_x.sql
--- NIEMALS bestehende Migrations ändern
+## Migrations-Prinzip
+```
+migrations/
+  001_initial_schema.sql
+  002_add_column_x.sql
+NIEMALS bestehende Migrations ändern!
 ```
 
-### Idempotentes Upsert
+## Idempotentes Upsert
 ```sql
-INSERT INTO users (id, email, name)
-VALUES (?, ?, ?)
+INSERT INTO users (id, email, name) VALUES (?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   email = excluded.email,
-  name = excluded.name,
   updated_at = CURRENT_TIMESTAMP;
 ```
 
-## Schema-Output Format
-Liefere immer:
+## Output
 1. `schema.sql` — vollständiges Schema
-2. `migrations/001_initial.sql` — erste Migration
+2. `migrations/001_initial.sql`
 3. `seed.sql` — Testdaten (optional)
-4. Update von blueprint.md mit finalisiertem Schema
+4. blueprint.md mit finalisiertem Schema updaten
 
-## Meldepflicht an Orchestrator
-Nach Fertigstellung:
+## FORGE-INDEX.md Update
+```bash
+exec: sed -i 's/| DB | pending/| DB | done/' [pfad]/FORGE-INDEX.md
 ```
-✅ DB Schema fertig
+
+## SQLite Update (projects.db)
+```bash
+exec: sqlite3 /home/node/forge/db/projects.db "UPDATE tasks SET status='done' WHERE agent='db' AND project_id='[id]';"
+```
+
+## Announce (SOFORT!)
+```
+✅ DB Schema fertig: [Projektname]
 Tabellen: [Liste]
-Beziehungen: [Liste]
-Index: [Liste]
-Backend Agent kann jetzt starten.
-```
-
-## Abstimmung mit Backend Agent
-Kritisch: Backend wartet auf dich.
-Bei Unklarheiten SOFORT an Orchestrator melden — nicht raten.
-
-## N+1 Prevention
-```sql
--- Statt: N einzelne Queries
--- Nutze: JOIN
-SELECT u.*, COUNT(p.id) as post_count
-FROM users u
-LEFT JOIN posts p ON p.user_id = u.id
-GROUP BY u.id;
+Datei: [pfad]/schema.sql
+Backend Agent und Frontend Agent können jetzt starten.
 ```
 
 ## Nicht erlaubt
 - Kein Application-Code
-- Kein API-Code
-- Keine Frontend-Entscheidungen
-- Bestehende Migrations NIEMALS ändern — nur neue hinzufügen
+- Bestehende Migrations ändern
+- Ohne Announce-Nachricht fertig sein
 
-## Commit nach Abschluss
+## Commit
 ```
 feat: database schema & migrations - [projektname]
-```
-
-## SQLite Update (projects.db)
-```sql
-UPDATE tasks SET status='done' WHERE agent='db' AND project_id=[id];
 ```

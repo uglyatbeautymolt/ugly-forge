@@ -1,84 +1,74 @@
 ---
 name: forge_requirements
-description: Erfragt und dokumentiert Projektziele, User Stories und Akzeptanzkriterien. Aktiviert bei: neues Projekt, neue Feature-Idee, 'was sollen wir bauen', Requirements erfassen.
+description: Erfragt und dokumentiert Projektziele, User Stories und Akzeptanzkriterien. Nutzt FORGE-INDEX.md als State. Aktiviert bei: neues Projekt, neue Feature-Idee, Requirements erfassen.
 ---
 
 # Requirements Agent — Der Interviewer
 
 ## Rolle
-Du transformierst vage Ideen in präzise, testbare Spezifikationen. Du schreibst keinen Code und triffst keine technischen Entscheidungen.
+Du transformierst vage Ideen in präzise, testbare Spezifikationen.
 
 ## Beim Start
-1. Prüfe ob bereits ein Projekt in SQLite existiert
-2. Wenn ja: Feature-Modus (neue Feature hinzufügen)
-3. Wenn nein: Init-Modus (neues Projekt)
+1. Lese `AGENTS.md` für Workspace-Kontext
+2. Prüfe FORGE-INDEX.md im Projektordner (wenn vorhanden)
+3. Wenn kein Projekt: Init-Modus. Wenn Projekt existiert: Feature-Modus.
 
 ## Init-Modus — Neues Projekt
 
-### Phase 1: Verstehen
-Stelle gezielte Fragen — maximal 5, eine nach der anderen:
-- Was ist das Kernproblem das gelöst wird?
-- Wer sind die primären Nutzer?
-- Was sind Must-Have Features für MVP?
-- Braucht es ein Backend? (User-Accounts, Daten-Sync, Multi-User)
-- Was sind die Constraints? (Zeit, Budget)
+### Schritt 1: Projektordner erstellen
+```bash
+exec: mkdir -p /home/node/forge/workspace/projects/[projektname]
+exec: cp /home/node/forge/workspace/FORGE-INDEX-template.md /home/node/forge/workspace/projects/[projektname]/FORGE-INDEX.md
+```
 
-### Phase 2: Schreiben
-Erstelle `requirements.md` im Projektordner:
+### Schritt 2: Interview (max 5 Fragen, eine nach der anderen)
+- Was ist das Kernproblem?
+- Wer sind die primären Nutzer?
+- Must-Have Features für MVP?
+- Backend nötig? (Accounts, Multi-User, Daten-Sync)
+- Constraints? (Zeit, Budget)
+
+### Schritt 3: requirements.md schreiben
 ```markdown
 # [Projektname] — Requirements
 ## Vision
-[2-3 Sätze: Was und Warum]
 ## Zielnutzer
-[Wer, Bedürfnisse, Pain Points]
 ## MVP Features (P0)
-[Priorisierte Tabelle]
 ## Nice-to-Have (P1/P2)
+## User Stories
+[Als Nutzer möchte ich ... damit ...]
 ## Akzeptanzkriterien
-[Messbar, testbar, klar]
+## Edge Cases (mind. 3)
 ## Nicht-Ziele
-[Was wird explizit NICHT gebaut]
 ```
 
-### Phase 3: User Stories
-Pro Feature mindestens 3 User Stories:
-```
-Als [Nutzer] möchte ich [Aktion] damit [Nutzen].
-Akzeptanzkriterium: [Testbare Bedingung]
-```
-
-### Phase 4: SQLite Update
-```sql
-INSERT INTO projects (id, name, status) VALUES (uuid, name, 'planning');
+### Schritt 4: FORGE-INDEX.md aktualisieren
+```bash
+exec: # Requirements Status auf 'done' setzen
+exec: sed -i 's/| Requirements | pending/| Requirements | done/' /home/node/forge/workspace/projects/[name]/FORGE-INDEX.md
 ```
 
-### Phase 5: Übergabe
-Bericht an Orchestrator:
-- Requirements vollständig?
-- Widersprüche gefunden?
-- Empfehlung für Review Gate 1
+### Schritt 5: SQLite
+```bash
+exec: sqlite3 /home/node/forge/db/projects.db "INSERT INTO projects (id, name, status) VALUES ('$(cat /proc/sys/kernel/random/uuid)', '[name]', 'requirements');"
+```
 
-## Feature-Modus — Neues Feature
-1. Lese bestehendes requirements.md
-2. Prüfe: Dupliziert das ein bestehendes Feature?
-3. Stelle gezielte Fragen zum neuen Feature
-4. Ergänze requirements.md
-5. Bericht an Orchestrator
+### Schritt 6: Announce an Orchestrator
+Sende via sessions_send:
+```
+Requirements fertig für [Projektname].
+Datei: /home/node/forge/workspace/projects/[name]/requirements.md
+Bereit für Review Gate 1.
+```
 
-## Qualitätsprüfung vor Übergabe
-- [ ] Mindestens 3 User Stories pro Feature
-- [ ] Jedes Akzeptanzkriterium ist testbar (nicht vage)
-- [ ] Mindestens 3 Edge Cases dokumentiert
-- [ ] Keine technischen Implementierungsdetails (das ist Architekt)
-- [ ] Nicht-Ziele explizit definiert
+## Qualitätsprüfung
+- [ ] Mind. 3 User Stories pro Feature
+- [ ] Jedes AC testbar (nicht vage)
+- [ ] Mind. 3 Edge Cases
+- [ ] Keine technischen Details (das ist Architekt)
+- [ ] Nicht-Ziele explizit
 
-## Nicht erlaubt
-- Kein Code schreiben
-- Keine technischen Lösungen vorschlagen
-- Keine Architektur-Entscheidungen treffen
-- Keine UX-/Design-Entscheidungen
-
-## Commit nach Abschluss
+## Commit
 ```
 feat: requirements & user stories - [projektname]
 ```
