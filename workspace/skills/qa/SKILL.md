@@ -1,6 +1,6 @@
 ---
 name: forge_qa
-description: Testet gegen Akzeptanzkriterien, schreibt Unit/E2E Tests, Security Audit. Liest FORGE-INDEX.md. Aktiviert bei: testen, QA, Tests, Security Audit.
+description: "Testet Features gegen Akzeptanzkriterien, schreibt Unit- und E2E-Tests, fuehrt Security Audit durch. Aktiviert bei: testen, QA, Unit Tests, Integration Tests, E2E Tests, Security Audit."
 ---
 
 # QA Agent — Der Prüfer
@@ -16,10 +16,10 @@ description: Testet gegen Akzeptanzkriterien, schreibt Unit/E2E Tests, Security 
 ### Unit Tests (co-located!)
 ```
 src/hooks/useAuth.ts
-src/hooks/useAuth.test.ts  ← direkt daneben!
+src/hooks/useAuth.test.ts  <- direkt daneben!
 ```
 Testen: Custom Hooks, Utility-Funktionen, Validation-Logik.
-NICHT testen: Reine Präsentation, was E2E abdeckt.
+NICHT testen: Reine Praesentation, was E2E abdeckt.
 
 ```bash
 exec: npm test  # Vitest
@@ -46,10 +46,10 @@ exec: npm run test:e2e
 ```
 
 ## Security Audit (Red Team)
-- Auth Bypass möglich?
+- Auth Bypass moeglich?
 - IDOR: User A auf Daten von User B?
 - XSS: User-Input unsanitized ausgegeben?
-- SQL Injection: Prepared Statements überall?
+- SQL Injection: Prepared Statements ueberall?
 - Secrets in Console/Network sichtbar?
 
 ## Bug Severity
@@ -62,9 +62,9 @@ exec: npm run test:e2e
 - BEREIT: Keine Critical/High Bugs
 - NICHT BEREIT: Critical/High vorhanden
 
-## Test-Resultate in requirements.md anhängen
+## Test-Resultate in requirements.md anhaengen
 ```markdown
-## QA Resultate — [Datum]
+## QA Resultate - [Datum]
 ### ACs: X/Y passed
 ### Bugs: [Tabelle]
 ### Security: [Status]
@@ -73,7 +73,12 @@ exec: npm run test:e2e
 
 ## FORGE-INDEX.md Update
 ```bash
-exec: sed -i 's/| QA | pending/| QA | approved/' [pfad]/FORGE-INDEX.md
+exec: sed -i 's/| forge-qa | pending/| forge-qa | approved/' [pfad]/FORGE-INDEX.md
+```
+
+## SQLite Update
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='approved' WHERE agent='qa' AND project_id='[id]';"
 ```
 
 ## Announce

@@ -1,6 +1,6 @@
 ---
 name: forge_db
-description: Erstellt Datenbankschema und Migrations. Immer ZUERST in Entwicklungsphase. Aktiviert bei: Datenbankschema, Migrations, DB-Design, Tabellen definieren.
+description: "Erstellt Datenbankschema, Migrations und Queries. Immer ZUERST fertig in Entwicklungsphase. Backend und Frontend warten auf dieses Schema. Aktiviert bei: Datenbankschema erstellen, Migrations, DB-Design, Tabellen definieren."
 ---
 
 # DB Agent — Der Datenbankarchitekt
@@ -26,10 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indizes für häufige Queries
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
--- Foreign Keys aktivieren!
 PRAGMA foreign_keys = ON;
 ```
 
@@ -38,7 +35,7 @@ PRAGMA foreign_keys = ON;
 migrations/
   001_initial_schema.sql
   002_add_column_x.sql
-NIEMALS bestehende Migrations ändern!
+NIEMALS bestehende Migrations aendern!
 ```
 
 ## Idempotentes Upsert
@@ -57,25 +54,25 @@ ON CONFLICT(id) DO UPDATE SET
 
 ## FORGE-INDEX.md Update
 ```bash
-exec: sed -i 's/| DB | pending/| DB | done/' [pfad]/FORGE-INDEX.md
+exec: sed -i 's/| forge-db | pending/| forge-db | done/' [pfad]/FORGE-INDEX.md
 ```
 
 ## SQLite Update (projects.db)
 ```bash
-exec: sqlite3 /home/node/forge/db/projects.db "UPDATE tasks SET status='done' WHERE agent='db' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE agent='db' AND project_id='[id]';"
 ```
 
 ## Announce (SOFORT!)
 ```
-✅ DB Schema fertig: [Projektname]
+DB Schema fertig: [Projektname]
 Tabellen: [Liste]
 Datei: [pfad]/schema.sql
-Backend Agent und Frontend Agent können jetzt starten.
+Backend Agent und Frontend Agent koennen jetzt starten.
 ```
 
 ## Nicht erlaubt
 - Kein Application-Code
-- Bestehende Migrations ändern
+- Bestehende Migrations aendern
 - Ohne Announce-Nachricht fertig sein
 
 ## Commit

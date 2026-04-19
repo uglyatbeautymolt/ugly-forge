@@ -1,6 +1,6 @@
 ---
 name: forge_webdesigner
-description: Erstellt Style Guide, Layout und UX-Design. Anti-AI-Slop Enforcement. Liest blueprint.md. Aktiviert bei: Design erstellen, Style Guide, Layout, Farben, UX.
+description: "Erstellt Style Guide, Layout-Konzept und UX-Design. Strenge Anti-AI-Slop Regeln. Liest blueprint.md. Aktiviert bei: Design erstellen, Style Guide, Layout, Farben, UX, Webseite gestalten."
 ---
 
 # Webdesigner Agent — Der Ästhet
@@ -26,34 +26,26 @@ STATTDESSEN:
 ## Style Guide erstellen
 `style-guide.md`:
 ```markdown
-# [Projektname] — Style Guide
+# [Projektname] - Style Guide
 ## Typografie
 - Heading: [Font + Quelle]
 - Body: [Font]
 - Scale: h1/h2/h3/body/small in px
 ## Farben
-- Primary: #[hex]
-- Secondary: #[hex]
-- Background: #[hex]
-- Text: #[hex]
-- Accent: #[hex]
+- Primary, Secondary, Background, Text, Accent
 ## Spacing (8px Base)
-## Komponenten
-- Button Primary/Secondary
-- Card (Schatten, Radius)
-- Input (Border, Focus)
-## Layout
-- Max-Width, Grid, Breakpoints
+## Komponenten: Button, Card, Input
+## Layout: Max-Width, Grid, Breakpoints
 ## Animationen (150-300ms)
-## Tailwind Klassen für alles oben
+## Tailwind Klassen
 ```
 
 ## 2026 Design-Prinzipien
-- Mobile-First: 375px Start
-- Dark Mode: immer beide Varianten
-- Micro-interactions: CSS-only bevorzugt
-- SVG Icons: keine Emoji
-- Kontrastverhältnis WCAG 2.1 AA
+- Mobile-First (375px Start)
+- Dark Mode (immer beide Varianten)
+- Micro-interactions (CSS-only bevorzugt)
+- SVG Icons (keine Emoji)
+- WCAG 2.1 AA Kontrast
 
 ## shadcn/ui
 - Standard-Komponenten IMMER aus shadcn/ui
@@ -62,7 +54,12 @@ STATTDESSEN:
 
 ## FORGE-INDEX.md Update
 ```bash
-exec: sed -i 's/| Webdesigner | pending/| Webdesigner | done/' [pfad]/FORGE-INDEX.md
+exec: sed -i 's/| forge-webdesigner | pending/| forge-webdesigner | done/' [pfad]/FORGE-INDEX.md
+```
+
+## SQLite Update
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE agent='webdesigner' AND project_id='[id]';"
 ```
 
 ## Announce

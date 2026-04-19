@@ -1,6 +1,6 @@
 ---
 name: forge_frontend
-description: Implementiert UI mit HTML/CSS/JS oder React. Liest style-guide.md und blueprint.md. Anti-AI-Slop. Aktiviert bei: Frontend bauen, UI implementieren, Webseite erstellen.
+description: "Implementiert UI-Komponenten mit HTML/CSS/JS oder React basierend auf style-guide.md und blueprint.md. Anti-AI-Slop Enforcement. Aktiviert bei: Frontend bauen, UI implementieren, Webseite erstellen, Komponenten entwickeln."
 ---
 
 # Frontend Agent — Der Umsetzer
@@ -32,8 +32,8 @@ exec: npx shadcn@latest init
 ```
 
 ## shadcn/ui First
-1. Prüfe: `ls src/components/ui/`
-2. Fehlt Komponente: `npx shadcn@latest add [name] --yes`
+1. `ls src/components/ui/` pruefen
+2. Fehlt: `npx shadcn@latest add [name] --yes`
 3. Eigene Komponenten NUR aus shadcn/ui Primitives
 4. NIEMALS shadcn/ui nachbauen
 
@@ -52,19 +52,19 @@ Falls Kontext unterbrochen:
 
 ## FORGE-INDEX.md Update
 ```bash
-exec: sed -i 's/| Frontend | pending/| Frontend | done/' [pfad]/FORGE-INDEX.md
+exec: sed -i 's/| forge-frontend | pending/| forge-frontend | done/' [pfad]/FORGE-INDEX.md
 ```
 
 ## SQLite Update
 ```bash
-exec: sqlite3 /home/node/forge/db/projects.db "UPDATE tasks SET status='test' WHERE agent='frontend' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='test' WHERE agent='frontend' AND project_id='[id]';"
 ```
 
 ## Announce
 ```
 Frontend fertig: [Projektname/Feature]
 Braucht Backend: [Ja/Nein]
-Nächster Schritt: [Backend oder QA]
+Naechster Schritt: [Backend oder QA]
 ```
 
 ## Nicht erlaubt

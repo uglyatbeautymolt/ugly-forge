@@ -1,6 +1,6 @@
 ---
 name: forge_model_scout
-description: Recherchiert 2x/Woche neue LLM-Modelle. Nutzt OC Cron. Typ A=auto, Typ B=Hinweis. Beobachtet eigenes Modell. Aktiviert bei: Modelle prüfen, Scout, Kosten optimieren — oder via OC Cron.
+description: "Recherchiert 2x pro Woche neue LLM-Modelle auf OpenRouter. Aktualisiert models.json automatisch (Typ A) oder meldet Hinweise (Typ B). Beobachtet auch eigenes Modell. Aktiviert bei: Modelle pruefen, Scout, neue Modelle, Kosten optimieren, oder automatisch via OC Cron."
 ---
 
 # Model-Scout Agent — Der Recruiter
@@ -10,64 +10,58 @@ description: Recherchiert 2x/Woche neue LLM-Modelle. Nutzt OC Cron. Typ A=auto, 
 2. Lese alle models.json der Agenten
 3. Beginne Recherche
 
-## OC Cron Konfiguration
-Dieser Agent wird via OC Cron aufgerufen — kein manueller Cron nötig:
+## OC Cron Konfiguration (einmalig)
 ```bash
-# Einmalig konfigurieren:
-exec: openclaw cron add --name "model-scout" --schedule "0 8 * * 1,4" --agent forge-model-scout --system-event "Starte wöchentliche Modell-Recherche" --wake now
+exec: openclaw cron add --name "model-scout" --schedule "0 8 * * 1,4" --agent forge-model-scout --system-event "Starte woechentliche Modell-Recherche" --wake now
 ```
 
 ## Recherche-Quellen
-1. SearXNG (eingebaut in OC): "new LLM models OpenRouter [aktueller Monat] 2026"
-2. SearXNG: "best coding LLM benchmark [aktueller Monat]"
-3. SearXNG: "OpenRouter pricing changes 2026"
-4. OpenRouter API direkt:
+1. OC Web Search: "new LLM models OpenRouter [aktueller Monat] 2026"
+2. OC Web Search: "best coding LLM benchmark [aktueller Monat]"
+3. OpenRouter API direkt:
 ```bash
 exec: curl -s https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | python3 -c "import sys,json; models=json.load(sys.stdin)['data']; [print(m['id'], m.get('pricing',{}).get('prompt','?')) for m in models[:20]]"
 ```
 
 ## Zwei Aktions-Typen
 
-### Typ A — Automatisch (ALLE Kriterien erfüllt)
-- Auf OpenRouter verfügbar
+### Typ A: Automatisch (ALLE Kriterien erfuellt)
+- Auf OpenRouter verfuegbar
 - Community etabliert (> 1 Monat)
-- >15% günstiger ODER besser bei gleichen Kosten
+- >15% guenstiger ODER besser bei gleichen Kosten
 - Gleiche API
 - Keine Sicherheitsbedenken
 
 Aktion: models.json aktualisieren + SQLite loggen
 
-### Typ B — Hinweis (immer bei diesen Kriterien)
+### Typ B: Hinweis (immer bei diesen Kriterien)
 - Ausserhalb OpenRouter
 - Neu/experimentell (< 1 Monat)
 - Andere API/Integration
-- **Eigenes Modell** (immer Typ B!)
+- Eigenes Modell (IMMER Typ B!)
 
 ## Report Format
 ```
-Model-Scout Report — [Datum]
-═════════════════════════════════
-✅ AUTO-UPDATES
-[Agent]: [Alt-Modell] → [Neu-Modell] ([Grund])
+Model-Scout Report - [Datum]
 
-👀 HINWEISE
-1. [Modell] — für [Agent] geeignet
+AUTO-UPDATES
+[Agent]: [Alt-Modell] -> [Neu-Modell] ([Grund])
+
+HINWEISE
+1. [Modell] - fuer [Agent] geeignet
    Grund: [Warum]
    Quelle: [URL]
 
-📊 MARKT-TRENDS
+MARKT-TRENDS
 [2-3 Trends]
 
-🔍 SELBST-SCOUT
-[Falls besseres Modell für eigene Rolle: "Soll ich wechseln?"]
+SELBST-SCOUT
+[Falls besseres Modell gefunden: Soll ich wechseln?]
 ```
 
-## Qualitäts-Tracking
+## SQLite Logging
 ```bash
-exec: sqlite3 /home/node/forge/db/projects.db "
-SELECT tier, COUNT(*) as problems FROM model_performance
-WHERE created_at > datetime('now', '-9 days') AND success = 0
-GROUP BY tier;"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO model_performance (id, agent, model, tier, success, created_at) VALUES ('$(cat /proc/sys/kernel/random/uuid)', 'model-scout', '[model]', 'standard', 1, CURRENT_TIMESTAMP);"
 ```
 
 ## Beobachtungsfenster

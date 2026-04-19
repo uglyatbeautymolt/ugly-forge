@@ -1,44 +1,37 @@
 // ugly-forge Agenten-Konfiguration
-// JSON5 Format — Kommentare und trailing commas erlaubt
+// JSON5 Format - Kommentare und trailing commas erlaubt
 //
 // VERWENDUNG:
-// Falls openclaw.json noch nicht existiert: wird automatisch als openclaw.json kopiert
-// Falls openclaw.json bereits existiert: agents.list und tools.loopDetection manuell eintragen
+// Falls openclaw.json noch nicht existiert: wird als openclaw.json kopiert
+// Falls openclaw.json bereits existiert: agents.list manuell eintragen
 //
-// WICHTIG: model.primary Syntax — nicht model direkt!
-// WICHTIG: Alle forge-Agenten teilen denselben Workspace ~/.openclaw/workspace
-//          Skills liegen in ~/.openclaw/skills/ (shared für alle Agenten)
-//          agentDir wird automatisch pro Agent erstellt: ~/.openclaw/agents/<id>/
+// WICHTIG: model.primary Syntax verwenden!
+// WICHTIG: tools.loopDetection gehoert unter agents.defaults oder agents.list[].tools
+//          NICHT auf Root-Level 'tools:' - das ist ein anderes Schema-Feld!
 //
 {
-  // ─── Loop-Detection (global, für alle Agenten) ───────────────────────────
-  tools: {
-    loopDetection: {
-      enabled: true,
-      historySize: 20,
-      detectorCooldownMs: 12000,
-      repeatThreshold: 3,
-      criticalThreshold: 5,
-      detectors: {
-        repeatedFailure: true,
-        knownPollLoop: true,
-        repeatingNoProgress: true,
-      },
-    },
-  },
-
-  // ─── Agenten ─────────────────────────────────────────────────────────────
-  // Jeder Agent bekommt:
-  //   - eigenes agentDir: ~/.openclaw/agents/<id>/  (auto-erstellt)
-  //   - eigene Sessions: ~/.openclaw/agents/<id>/sessions/
-  //   - geteilten Workspace: ~/.openclaw/workspace/
-  //   - geteilte Skills: ~/.openclaw/skills/
+  // Agenten-Konfiguration
   agents: {
     defaults: {
       workspace: "~/.openclaw/workspace",
+      // Loop-Detection fuer alle Agenten als Default
+      tools: {
+        loopDetection: {
+          enabled: true,
+          historySize: 20,
+          detectorCooldownMs: 12000,
+          repeatThreshold: 3,
+          criticalThreshold: 5,
+          detectors: {
+            repeatedFailure: true,
+            knownPollLoop: true,
+            repeatingNoProgress: true,
+          },
+        },
+      },
     },
     list: [
-      // ── Koordination ──────────────────────────────────────────────────
+      // -- Koordination --
       {
         id: "forge-orchestrator",
         workspace: "~/.openclaw/workspace",
@@ -47,7 +40,7 @@
           fallbacks: [ "openrouter/google/gemini-2.0-flash-exp:free" ],
         },
         tools: {
-          // Orchestrator bekommt strengere Loop-Detection
+          // Orchestrator: strengere Loop-Detection
           loopDetection: {
             enabled: true,
             repeatThreshold: 2,
@@ -56,7 +49,7 @@
         },
       },
 
-      // ── Phase 1: Anforderungen ────────────────────────────────────────
+      // -- Phase 1: Anforderungen --
       {
         id: "forge-requirements",
         workspace: "~/.openclaw/workspace",
@@ -74,7 +67,7 @@
         },
       },
 
-      // ── Phase 2: Design ───────────────────────────────────────────────
+      // -- Phase 2: Design --
       {
         id: "forge-architekt",
         workspace: "~/.openclaw/workspace",
@@ -92,7 +85,7 @@
         },
       },
 
-      // ── Phase 3: Entwicklung ──────────────────────────────────────────
+      // -- Phase 3: Entwicklung --
       {
         id: "forge-db",
         workspace: "~/.openclaw/workspace",
@@ -113,7 +106,6 @@
         id: "forge-frontend",
         workspace: "~/.openclaw/workspace",
         model: {
-          // Qwen3 Coder ist kostenlos und sehr stark für Frontend
           primary: "openrouter/qwen/qwen3-coder:free",
           fallbacks: [ "openrouter/google/gemini-flash-1.5" ],
         },
@@ -126,7 +118,7 @@
         },
       },
 
-      // ── Phase 4: QA & Deploy ──────────────────────────────────────────
+      // -- Phase 4: QA & Deploy --
       {
         id: "forge-qa",
         workspace: "~/.openclaw/workspace",
@@ -144,7 +136,7 @@
         },
       },
 
-      // ── Nach Abschluss ────────────────────────────────────────────────
+      // -- Nach Abschluss --
       {
         id: "forge-retro",
         workspace: "~/.openclaw/workspace",
@@ -154,7 +146,7 @@
         },
       },
 
-      // ── Automatisch (Cron 2x/Woche) ───────────────────────────────────
+      // -- Automatisch via Cron (2x/Woche) --
       {
         id: "forge-model-scout",
         workspace: "~/.openclaw/workspace",

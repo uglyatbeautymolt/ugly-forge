@@ -1,6 +1,6 @@
 ---
 name: forge_retro
-description: Retrospektive nach Projektabschluss. TOP 3 Token-Verbrauch + Kostenabweichung. Max 3 Verbesserungen. Schreibt in SKILL.md nach Freigabe. Aktiviert bei: Retro, Projekt abgeschlossen, Learnings.
+description: "Fuehrt Retrospektive nach Projektabschluss durch. Analysiert TOP 3 Token-Verbrauch und Kostenabweichungen. Maximal 3 Verbesserungen. Schreibt Learnings in SKILL.md nach Nutzer-Freigabe. Aktiviert bei: Retro, Retrospektive, Projekt abgeschlossen, Learnings dokumentieren."
 ---
 
 # Retro Agent — Der Lernende
@@ -14,38 +14,31 @@ description: Retrospektive nach Projektabschluss. TOP 3 Token-Verbrauch + Kosten
 
 ### TOP 3 Token-Verbrauch
 ```bash
-exec: sqlite3 /home/node/forge/db/projects.db "
-SELECT agent, SUM(tokens_input + tokens_output) as total_tokens
-FROM model_performance WHERE project_id = '[id]'
-GROUP BY agent ORDER BY total_tokens DESC LIMIT 3;"
+exec: sqlite3 /home/node/forge-db/projects.db "SELECT agent, SUM(tokens_input + tokens_output) as total_tokens FROM model_performance WHERE project_id = '[id]' GROUP BY agent ORDER BY total_tokens DESC LIMIT 3;"
 ```
 
 ### TOP 3 Kostenabweichung
 ```bash
-exec: sqlite3 /home/node/forge/db/projects.db "
-SELECT agent, SUM(cost) as real_cost
-FROM model_performance WHERE project_id = '[id]'
-GROUP BY agent ORDER BY real_cost DESC LIMIT 3;"
+exec: sqlite3 /home/node/forge-db/projects.db "SELECT agent, SUM(cost) as real_cost FROM model_performance WHERE project_id = '[id]' GROUP BY agent ORDER BY real_cost DESC LIMIT 3;"
 ```
 
-### Vereinigung → max 3 Fokus-Agenten
+### Vereinigung -> max 3 Fokus-Agenten
 
 ## Retro Report
 ```
-Projekt Retro: [Name] — [Datum]
-═══════════════════════════════════════
+Projekt Retro: [Name] - [Datum]
+
 FOKUS: [Agent 1] + [Agent 2]
 
 KOSTEN
-Agent      Geschätzt  Real     Abw.
-[Agent 1]  $1.40      $1.85   +32% ⚠️
-[Agent 2]  $0.85      $1.10   +29% ⚠️
+Agent      Geschaetzt  Real     Abw.
+[Agent 1]  $1.40       $1.85   +32%
+[Agent 2]  $0.85       $1.10   +29%
 
 VERBESSERUNGEN (max 3)
-─────────────────────────────────────
 Agent: Backend
 Problem: Output-Token zu hoch
-Lösung: Structured Output Template
+Loesung: Structured Output Template
 Effekt: -8K Token erwartet
 ```
 
@@ -54,33 +47,32 @@ Effekt: -8K Token erwartet
 ## Learnings
 ### Retro: [Projektname] ([Datum])
 Problem: [Was]
-Lösung: [Konkret]
+Loesung: [Konkret]
 Effekt: [Messbar]
-Status: ⏳ Ausstehend
+Status: ausstehend
 ```
 
 ## Status-Lifecycle
-- ⏳ Ausstehend: Noch nicht getestet
-- ✅ Bestätigt: Hat geholfen
-- ⚠️ Teilweise: Teils geholfen
-- ❌ Verworfen: Aus SKILL.md entfernen
+- ausstehend: Noch nicht getestet
+- bestaetigt: Hat geholfen
+- teilweise: Teils geholfen
+- verworfen: Aus SKILL.md entfernen
 
 ## FORGE-INDEX.md Update
 ```bash
-exec: sed -i 's/| Retro | pending/| Retro | done/' [pfad]/FORGE-INDEX.md
+exec: sed -i 's/| forge-retro | pending/| forge-retro | done/' [pfad]/FORGE-INDEX.md
 ```
 
-## Vergangene Learnings prüfen
+## SQLite Update
 ```bash
-exec: sqlite3 /home/node/forge/db/projects.db "
-SELECT * FROM agent_learnings WHERE status='pending';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE agent='retro' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='completed' WHERE id='[id]';"
 ```
-War das Learning wirksam? Status aktualisieren.
 
 ## Nicht erlaubt
 - Mehr als 3 Verbesserungen
 - Learnings ohne Freigabe schreiben
-- Vage Vorschläge (muss messbar sein)
+- Vage Vorschlaege (muss messbar sein)
 
 ## Commit
 ```
