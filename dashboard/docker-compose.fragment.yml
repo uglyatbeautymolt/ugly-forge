@@ -1,0 +1,37 @@
+# Docker Compose Ergänzung für ugly-stack
+# Dieser Block in ugly-stack/docker-compose.yml unter 'services:' einfügen
+
+# WICHTIG: Der bootstrap.sh macht das automatisch wenn du ihn neu läufst.
+# Oder manuell:
+#
+# services:
+#   ... (bestehende Services)
+#
+#   forge-dashboard:
+#     build:
+#       context: ../ugly-forge/dashboard
+#       dockerfile: Dockerfile
+#     container_name: forge-dashboard
+#     restart: unless-stopped
+#     ports:
+#       - "3001:3001"
+#     volumes:
+#       - ../ugly-forge/db:/home/node/forge-db:ro
+#     environment:
+#       - PORT=3001
+#       - DB_PATH=/home/node/forge-db/projects.db
+#     networks:
+#       - default
+#
+# Dann nginx-Config:
+#   server {
+#     listen 80;
+#     server_name dashboard.beautymolt.com;
+#     location / {
+#       proxy_pass http://forge-dashboard:3001;
+#       proxy_http_version 1.1;
+#       proxy_set_header Upgrade $http_upgrade;
+#       proxy_set_header Connection "upgrade";
+#       proxy_set_header Host $host;
+#     }
+#   }
