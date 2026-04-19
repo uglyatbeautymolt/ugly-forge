@@ -1,14 +1,14 @@
-# 🦞🔨 ugly-forge
+# ugly-forge
 
 **Die KI-Softwareschmiede** — OpenClaw Multi-Agent Entwicklungsplattform
 
-Erweiterung für [ugly-stack](https://github.com/uglyatbeautymolt/VPS_Bootstrap).
+Erweiterung fuer [ugly-stack](https://github.com/uglyatbeautymolt/VPS_Bootstrap).
 
 ---
 
 ## Verzeichnisstruktur (wichtig!)
 
-`ugly-forge` muss **neben** `ugly-stack` liegen, nicht darin:
+`ugly-forge` muss **neben** `ugly-stack` liegen:
 
 ```
 /home/dein-user/
@@ -21,74 +21,55 @@ Erweiterung für [ugly-stack](https://github.com/uglyatbeautymolt/VPS_Bootstrap)
 ## Installation
 
 ```bash
-# 1. Ins Home-Verzeichnis wechseln (neben ugly-stack)
+# 1. Ins Home-Verzeichnis (neben ugly-stack)
 cd ~
 
 # 2. Repo klonen
 git clone https://github.com/uglyatbeautymolt/ugly-forge.git
 cd ugly-forge
 
-# 3. Bootstrap ausführen (als normaler User, nicht root)
+# 3. Bootstrap ausfuehren (als normaler User, nicht root)
 bash bootstrap.sh
 ```
 
-bootstrap.sh erledigt automatisch:
-- Fehlende Pakete prüfen und installieren (`sqlite3`, `curl`, `python3`) via sudo
-- Skills nach `~/.openclaw/skills/` kopieren (für alle Agenten sichtbar)
-- `AGENTS.md` in OC Workspace installieren (wird automatisch injiziert)
-- `openclaw.json` mit 12 Agenten erstellen
-- SQLite DB mit 6 Tabellen anlegen
-- Volume Mount für DB in docker-compose.yml ergänzen
-- OpenClaw neu starten
-
-`docker` und `docker compose` müssen bereits installiert sein.
-
-Nach erfolgreichem Bootstrap:
-```
-🦞🔨 ugly-forge Bootstrap abgeschlossen! 12 Agenten bereit.
-```
-
 ---
 
-## Voraussetzungen
+## OpenClaw-Befehle
 
-- ugly-stack läuft auf dem VPS
-- OpenClaw aktiv (`docker compose ps openclaw` zeigt `running`)
-- `PROJEKT_GPG_KEY` in `ugly-stack/.env` eingetragen
-- GitHub Token im Git Remote von ugly-stack eingebettet
-- User ist in der `docker`-Gruppe: `groups | grep docker`
+OC laeuft im Docker-Container — Befehle muessen mit `docker exec` ausgefuehrt werden:
 
----
+```bash
+# Agenten auflisten
+docker exec openclaw openclaw agents list
 
-## Architektur (OC-konform)
+# Forge starten
+docker exec -it openclaw openclaw agent --agent forge-orchestrator --message 'Hallo, neues Projekt starten'
 
-### Wie Agenten kommunizieren
-- `sessions_list` / `sessions_send` — OC-native Session-Tools
-- Orchestrator startet Agenten via `openclaw agent --agent [id]`
-- **Sequenziell** wegen maxSpawnDepth=2 (kein echtes Parallel-Spawning)
+# OC Status
+docker exec openclaw openclaw status
+```
 
-### Skills
-Liegen in `~/.openclaw/skills/` — shared, für alle Agenten sichtbar.
-Precedence: `workspace/skills/` > `~/.openclaw/skills/` > bundled
+Oder direkt in den Container wechseln:
 
-### State
-1. `FORGE-INDEX.md` im Projektordner — lesbar von allen Agenten
-2. SQLite via `exec: sqlite3 /home/node/forge-db/projects.db`
-
-### Loop-Schutz
-OC eingebaut (`loopDetection` in openclaw.json) + manuell in Skills.
+```bash
+docker exec -it openclaw bash
+# Dann: openclaw agents list
+```
 
 ---
 
 ## Dashboard
 
 ```bash
-# Dashboard bauen und starten
 bash dashboard/build.sh
 ```
 
-Erreichbar unter `dashboard.beautymolt.com` nach nginx-Konfiguration.
-4 Ansichten: Live Monitor, Scrum Board, Projekte, Team.
+Erreichbar unter `https://dashboard.beautymolt.com` nach nginx-Konfiguration:
+
+```bash
+sudo cp dashboard/nginx.conf /etc/nginx/conf.d/forge-dashboard.conf
+sudo nginx -t && sudo nginx -s reload
+```
 
 ---
 
@@ -98,15 +79,13 @@ Erreichbar unter `dashboard.beautymolt.com` nach nginx-Konfiguration.
 bash uninstall.sh
 ```
 
-ugly-stack läuft unverändert weiter.
-
 ---
 
 ## Agenten
 
 | Agent | Modell | Aufgabe |
 |---|---|---|
-| forge-orchestrator | Gemini Flash-Lite | Koordination, Loop-Wächter |
+| forge-orchestrator | Gemini Flash-Lite | Koordination, Loop-Waechter |
 | forge-requirements | Gemini Flash | User Stories, ACs |
 | forge-review | DeepSeek R1 | Quality Gates, Kosten |
 | forge-architekt | DeepSeek R1 | System-Design, Blueprint |
@@ -121,16 +100,16 @@ ugly-stack läuft unverändert weiter.
 
 ---
 
-## Wichtige Technische Details
+## Technische Details
 
 | Was | Detail |
 |-----|--------|
-| SKILL.md descriptions | Immer in `"..."` — unquoted Colons crashen den Parser (silent drop!) |
-| openclaw.json Syntax | JSON5, `model.primary` nicht `model` direkt |
-| `tools.loopDetection` | Unter `agents.defaults.tools` — nicht auf Root-Level |
+| OC-Befehle | `docker exec openclaw openclaw ...` |
+| SKILL.md descriptions | Immer in `"..."` — unquoted Colons crashen den Parser |
+| openclaw.json Syntax | Reines JSON, `model.primary` |
+| `tools.loopDetection` | Unter `agents.defaults.tools` |
 | SQLite Pfad (Container) | `/home/node/forge-db/projects.db` |
-| Skills Pfad | `~/.openclaw/skills/` (shared), nicht im Workspace |
-| AGENTS.md Pfad | `~/.openclaw/workspace/AGENTS.md` (auto-injiziert) |
+| Skills Pfad | `~/.openclaw/skills/` (shared) |
 
 ---
 
