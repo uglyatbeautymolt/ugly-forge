@@ -1,21 +1,21 @@
 {
+  "tools": {
+    "loopDetection": {
+      "enabled": true,
+      "warningThreshold": 10,
+      "criticalThreshold": 20,
+      "globalCircuitBreakerThreshold": 30,
+      "historySize": 30,
+      "detectors": {
+        "genericRepeat": true,
+        "knownPollNoProgress": true,
+        "pingPong": true
+      }
+    }
+  },
   "agents": {
     "defaults": {
-      "workspace": "~/.openclaw/workspace",
-      "tools": {
-        "loopDetection": {
-          "enabled": true,
-          "historySize": 20,
-          "detectorCooldownMs": 12000,
-          "repeatThreshold": 3,
-          "criticalThreshold": 5,
-          "detectors": {
-            "repeatedFailure": true,
-            "knownPollLoop": true,
-            "repeatingNoProgress": true
-          }
-        }
-      }
+      "workspace": "~/.openclaw/workspace"
     },
     "list": [
       {
@@ -24,13 +24,6 @@
         "model": {
           "primary": "openrouter/google/gemini-2.5-flash-lite-preview-06-17",
           "fallbacks": ["openrouter/google/gemini-2.0-flash-exp:free"]
-        },
-        "tools": {
-          "loopDetection": {
-            "enabled": true,
-            "repeatThreshold": 2,
-            "criticalThreshold": 4
-          }
         }
       },
       {
@@ -87,13 +80,6 @@
         "model": {
           "primary": "openrouter/qwen/qwen3-coder:free",
           "fallbacks": ["openrouter/google/gemini-flash-1.5"]
-        },
-        "tools": {
-          "loopDetection": {
-            "enabled": true,
-            "repeatThreshold": 3,
-            "criticalThreshold": 6
-          }
         }
       },
       {
