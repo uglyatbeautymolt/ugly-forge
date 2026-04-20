@@ -368,166 +368,134 @@ echo -e "${COLOR_GREEN}OK SQLite DB + Migrationen: $FORGE_DB_DIR/projects.db${CO
 
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 
-PATCH_SCRIPT="/tmp/oc_db_mount_$$.py"
-cat > "$PATCH_SCRIPT" << PYEOF
-import sys
-
-compose_path = sys.argv[1]
-db_path = sys.argv[2]
-correct_mount = "      - " + db_path + ":/home/node/forge-db"
-
-with open(compose_path, 'r') as f:
-    lines = f.readlines()
-
-in_service = None
-oc_has_mount = False
-
-for line in lines:
-    stripped = line.rstrip()
-    lstripped = stripped.lstrip()
-    indent = len(stripped) - len(lstripped)
-    if indent == 2 and lstripped.endswith(':') and not lstripped.startswith('-'):
-        in_service = lstripped[:-1]
-    if in_service == 'openclaw' and 'forge-db' in stripped and '/home/node/forge-db' in stripped:
-        oc_has_mount = True
-
-if oc_has_mount:
-    print("OK: bereits vorhanden")
-    sys.exit(0)
-
-new_lines = []
-in_service = None
-inserted = False
-
-i = 0
-while i < len(lines):
-    line = lines[i]
-    stripped = line.rstrip()
-    lstripped = stripped.lstrip()
-    indent = len(stripped) - len(lstripped)
-    if indent == 2 and lstripped.endswith(':') and not lstripped.startswith('-'):
-        in_service = lstripped[:-1]
-    if in_service == 'openclaw' and 'forge-db:ro' in stripped:
-        line = line.replace('forge-db:ro', 'forge-db')
-    new_lines.append(line)
-    if in_service == 'openclaw' and not inserted and '/home/node/www' in stripped:
-        new_lines.append(correct_mount + '\n')
-        inserted = True
-    i += 1
-
-with open(compose_path, 'w') as f:
-    f.writelines(new_lines)
-print("OK: DB Mount eingefuegt")
-PYEOF
-
-python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR"
-rm -f "$PATCH_SCRIPT"
+# DB Mount fuer openclaw (nur falls noch nicht vorhanden)
+if ! grep -A30 "^  openclaw:" "$STACK_COMPOSE" | grep -q "forge-db"; then
+  # Backup vor Aenderung
+  cp "$STACK_COMPOSE" "${STACK_COMPOSE}.bak-$(date +%Y%m%d-%H%M%S)"
+  # Zeile nach letztem openclaw-Volume einfuegen
+  sed -i "/home\/node\/www.*# Webadmin/a\\      - $FORGE_DB_DIR:/home/node/forge-db" "$STACK_COMPOSE"
+  echo -e "  + DB Mount in openclaw eingefuegt"
+else
+  echo -e "  v DB Mount bereits vorhanden"
+fi
 
 # ----------------------------------------------------------------
-# 9. DASHBOARD — forge-dashboard Block mit allen Volumes
+# 9. DASHBOARD — forge-dashboard konfigurieren
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[9/11] Konfiguriere forge-dashboard...${COLOR_NC}"
 
 WWW_PATH="$STACK_DIR/www"
 mkdir -p "$WWW_PATH"
 
-# Workspace-Projekte-Pfad fuer File Browser
 OC_PROJECTS_PATH="$OC_DATA/workspace/projects"
 mkdir -p "$OC_PROJECTS_PATH"
 
-DASHBOARD_PATCH="/tmp/oc_dashboard_$$.py"
-cat > "$DASHBOARD_PATCH" << PYEOF
-import sys
+DB_PATH="$FORGE_DB_DIR"
 
-compose_path    = sys.argv[1]
-forge_dir       = sys.argv[2]
-www_path        = sys.argv[3]
-oc_projects     = sys.argv[4]
-db_path         = forge_dir + '/db'
+# Pruefe ob forge-dashboard korrekt konfiguriert ist
+DASH_OK=true
+if ! grep -q "forge-dashboard:" "$STACK_COMPOSE"; then DASH_OK=false; fi
+if ! grep -A20 "forge-dashboard:" "$STACK_COMPOSE" | grep -q "workspace/projects"; then DASH_OK=false; fi
+if ! grep -A20 "forge-dashboard:" "$STACK_COMPOSE" | grep -q "forge-db"; then DASH_OK=false; fi
 
-correct_block = (
-    "  forge-dashboard:\n"
-    "    image: forge-dashboard:latest\n"
-    "    container_name: forge-dashboard\n"
-    "    restart: unless-stopped\n"
-    "    ports:\n"
-    "      - \"3001:3001\"\n"
-    "    volumes:\n"
-    "      - " + db_path + ":/home/node/forge-db\n"
-    "      - " + www_path + ":/home/node/www\n"
-    "      - " + oc_projects + ":/home/node/workspace/projects\n"
-    "    environment:\n"
-    "      - PORT=3001\n"
-    "      - DB_PATH=/home/node/forge-db/projects.db\n"
-    "      - WWW_PATH=/home/node/www\n"
-    "      - WORKSPACE_PATH=/home/node/workspace/projects\n"
-    "    networks:\n"
-    "      - ugly-net\n"
+if [ "$DASH_OK" = "true" ]; then
+  echo -e "  v forge-dashboard bereits korrekt konfiguriert"
+else
+  echo -e "  Schreibe forge-dashboard Block..."
+  cp "$STACK_COMPOSE" "${STACK_COMPOSE}.bak-$(date +%Y%m%d-%H%M%S)"
+
+  # Korrekte forge-dashboard Konfiguration als temporaere Datei
+  DASH_BLOCK=$(cat << DASHEOF
+
+  forge-dashboard:
+    image: forge-dashboard:latest
+    container_name: forge-dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ${DB_PATH}:/home/node/forge-db
+      - ${WWW_PATH}:/home/node/www
+      - ${OC_PROJECTS_PATH}:/home/node/workspace/projects
+    environment:
+      - PORT=3001
+      - DB_PATH=/home/node/forge-db/projects.db
+      - WWW_PATH=/home/node/www
+      - WORKSPACE_PATH=/home/node/workspace/projects
+    networks:
+      - ugly-net
+DASHEOF
 )
 
-with open(compose_path, 'r') as f:
-    lines = f.readlines()
+  # Python mit korrektem Section-Tracking
+  python3 << PYEOF
+content = open("$STACK_COMPOSE").read()
+block = """$DASH_BLOCK"""
 
+# Entferne alten forge-dashboard Block falls vorhanden
+# Strategie: Zeilen-basiert, mit Section-Tracking um volumes: nicht zu beruehren
+lines = content.splitlines(keepends=True)
+new_lines = []
+current_section = None   # 'services', 'volumes', 'networks', etc.
 in_dash = False
-has_www = False
-has_db  = False
-has_workspace = False
+skip_dash = False
+
 for line in lines:
-    stripped = line.strip()
-    indent = len(line.rstrip()) - len(stripped)
-    if indent == 2 and stripped == 'forge-dashboard:':
-        in_dash = True
-    elif indent == 2 and stripped.endswith(':') and not stripped.startswith('-') and in_dash:
+    # Top-level Sektion erkennen (kein fuehrendes Leerzeichen)
+    if line and not line[0].isspace() and ':' in line:
+        current_section = line.split(':')[0].strip()
         in_dash = False
-    if in_dash:
-        if '/home/node/www' in line and line.strip().startswith('-'): has_www = True
-        if '/home/node/forge-db' in line and line.strip().startswith('-'): has_db = True
-        if '/home/node/workspace/projects' in line: has_workspace = True
+        skip_dash = False
 
-if has_www and has_db and has_workspace:
-    print("SKIP: forge-dashboard bereits korrekt konfiguriert")
-    sys.exit(0)
-
-if 'forge-dashboard:' in ''.join(lines):
-    new_lines = []
-    in_dash = False
-    skip = False
-    for line in lines:
+    # Service-Block Erkennung NUR innerhalb der services: Sektion
+    if current_section == 'services':
         stripped = line.strip()
-        indent = len(line.rstrip()) - len(stripped)
-        if indent == 2 and stripped == 'forge-dashboard:':
-            in_dash = True
-            skip = True
-            new_lines.append(correct_block)
-            continue
-        if skip and in_dash:
-            if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
+        indent = len(line) - len(line.lstrip())
+        if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
+            svc_name = stripped[:-1]
+            if svc_name == 'forge-dashboard':
+                in_dash = True
+                skip_dash = True
+                continue  # diesen Block ueberspringen
+            elif in_dash:
+                # Naechster Service nach forge-dashboard
                 in_dash = False
-                skip = False
-                new_lines.append(line)
-            continue
-        new_lines.append(line)
-    print("OK: forge-dashboard Block ersetzt")
-else:
-    new_lines = []
-    inserted = False
-    for line in lines:
-        if not inserted and line.startswith('volumes:'):
-            new_lines.append(correct_block + '\n')
-            inserted = True
-        new_lines.append(line)
-    if not inserted:
-        new_lines.append('\n' + correct_block)
-    print("OK: forge-dashboard Block eingefuegt")
+                skip_dash = False
 
-with open(compose_path, 'w') as f:
-    f.writelines(new_lines)
+    if skip_dash:
+        continue  # Zeilen des alten forge-dashboard Blocks ueberspringen
+
+    new_lines.append(line)
+
+content = ''.join(new_lines)
+
+# forge-dashboard Block vor 'volumes:' einfuegen
+if '\nvolumes:' in content:
+    content = content.replace('\nvolumes:', block + '\n\nvolumes:')
+else:
+    content = content.rstrip() + block + '\n'
+
+open("$STACK_COMPOSE", 'w').write(content)
+print("OK")
 PYEOF
 
-DASH_RESULT=$(python3 "$DASHBOARD_PATCH" "$STACK_COMPOSE" "$FORGE_DIR" "$WWW_PATH" "$OC_PROJECTS_PATH")
-rm -f "$DASHBOARD_PATCH"
-echo -e "  + $DASH_RESULT"
+  echo -e "  + forge-dashboard Block geschrieben"
+fi
 
+# YAML validieren
+if docker compose -f "$STACK_COMPOSE" config --quiet 2>/dev/null; then
+  echo -e "  ${COLOR_GREEN}v YAML valide${COLOR_NC}"
+else
+  echo -e "  ${COLOR_RED}! YAML ungueltig -- stelle Backup wieder her${COLOR_NC}"
+  LATEST_BAK=$(ls -t "${STACK_COMPOSE}.bak-"* 2>/dev/null | head -1)
+  if [ -n "$LATEST_BAK" ]; then
+    cp "$LATEST_BAK" "$STACK_COMPOSE"
+    echo -e "  + Backup wiederhergestellt: $LATEST_BAK"
+  fi
+  exit 1
+fi
+
+# Dashboard Image bauen und starten
 echo -e "  Baue Dashboard-Image..."
 docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
 docker rm -f forge-dashboard 2>/dev/null || true
@@ -543,7 +511,7 @@ echo -e "${COLOR_YELLOW}[10/11] Cloudflare Tunnel + nginx fuer dashboard.beautym
 source "$STACK_ENV"
 
 NGINX_CONF="$STACK_DIR/nginx/conf.d/default.conf"
-DASHBOARD_BLOCK='server {
+DASHBOARD_NGINX='server {
     listen 80;
     server_name dashboard.beautymolt.com;
     location / {
@@ -559,7 +527,7 @@ if grep -q "dashboard.beautymolt.com" "$NGINX_CONF" 2>/dev/null; then
   echo -e "  v nginx: dashboard.beautymolt.com bereits vorhanden"
 else
   echo "" >> "$NGINX_CONF"
-  echo "$DASHBOARD_BLOCK" >> "$NGINX_CONF"
+  echo "$DASHBOARD_NGINX" >> "$NGINX_CONF"
   echo -e "  + nginx: dashboard.beautymolt.com Block hinzugefuegt"
 fi
 
