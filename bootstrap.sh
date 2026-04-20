@@ -352,16 +352,15 @@ CREATE TABLE IF NOT EXISTS communications (
 );
 SQL
 
-# Migration: slug Spalte idempotent hinzufuegen (|| true verhindert Abbruch bei set -e)
+# Migration: slug Spalte idempotent (|| true verhindert Abbruch bei set -e)
 sqlite3 "$FORGE_DB_DIR/projects.db" "ALTER TABLE projects ADD COLUMN slug TEXT;" 2>/dev/null || true
 echo -e "  v slug Spalte OK"
 
-# Fehlende Slugs aus Namen generieren (idempotent)
+# Fehlende Slugs generieren
 sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
 UPDATE projects
 SET slug = lower(trim(replace(replace(replace(replace(replace(
-  name,
-  ' ', '-'), '_', '-'), '.', '-'), '/', '-'), '--', '-')))
+  name, ' ', '-'), '_', '-'), '.', '-'), '/', '-'), '--', '-')))
 WHERE slug IS NULL OR slug = '';
 SQL
 
@@ -425,21 +424,26 @@ python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR"
 rm -f "$PATCH_SCRIPT"
 
 # ----------------------------------------------------------------
-# 9. DASHBOARD + www-VOLUME
+# 9. DASHBOARD — forge-dashboard Block mit allen Volumes
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[9/11] Konfiguriere forge-dashboard...${COLOR_NC}"
 
 WWW_PATH="$STACK_DIR/www"
 mkdir -p "$WWW_PATH"
 
+# Workspace-Projekte-Pfad fuer File Browser
+OC_PROJECTS_PATH="$OC_DATA/workspace/projects"
+mkdir -p "$OC_PROJECTS_PATH"
+
 DASHBOARD_PATCH="/tmp/oc_dashboard_$$.py"
 cat > "$DASHBOARD_PATCH" << PYEOF
 import sys
 
-compose_path = sys.argv[1]
-forge_dir    = sys.argv[2]
-www_path     = sys.argv[3]
-db_path      = forge_dir + '/db'
+compose_path    = sys.argv[1]
+forge_dir       = sys.argv[2]
+www_path        = sys.argv[3]
+oc_projects     = sys.argv[4]
+db_path         = forge_dir + '/db'
 
 correct_block = (
     "  forge-dashboard:\n"
@@ -451,10 +455,12 @@ correct_block = (
     "    volumes:\n"
     "      - " + db_path + ":/home/node/forge-db\n"
     "      - " + www_path + ":/home/node/www\n"
+    "      - " + oc_projects + ":/home/node/workspace/projects\n"
     "    environment:\n"
     "      - PORT=3001\n"
     "      - DB_PATH=/home/node/forge-db/projects.db\n"
     "      - WWW_PATH=/home/node/www\n"
+    "      - WORKSPACE_PATH=/home/node/workspace/projects\n"
     "    networks:\n"
     "      - ugly-net\n"
 )
@@ -465,7 +471,7 @@ with open(compose_path, 'r') as f:
 in_dash = False
 has_www = False
 has_db  = False
-has_wwwenv = False
+has_workspace = False
 for line in lines:
     stripped = line.strip()
     indent = len(line.rstrip()) - len(stripped)
@@ -476,9 +482,9 @@ for line in lines:
     if in_dash:
         if '/home/node/www' in line and line.strip().startswith('-'): has_www = True
         if '/home/node/forge-db' in line and line.strip().startswith('-'): has_db = True
-        if 'WWW_PATH=' in line: has_wwwenv = True
+        if '/home/node/workspace/projects' in line: has_workspace = True
 
-if has_www and has_db and has_wwwenv:
+if has_www and has_db and has_workspace:
     print("SKIP: forge-dashboard bereits korrekt konfiguriert")
     sys.exit(0)
 
@@ -518,7 +524,7 @@ with open(compose_path, 'w') as f:
     f.writelines(new_lines)
 PYEOF
 
-DASH_RESULT=$(python3 "$DASHBOARD_PATCH" "$STACK_COMPOSE" "$FORGE_DIR" "$WWW_PATH")
+DASH_RESULT=$(python3 "$DASHBOARD_PATCH" "$STACK_COMPOSE" "$FORGE_DIR" "$WWW_PATH" "$OC_PROJECTS_PATH")
 rm -f "$DASHBOARD_PATCH"
 echo -e "  + $DASH_RESULT"
 
@@ -563,7 +569,7 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
     -H "Authorization: Bearer ${CF_TOKEN}")
   if echo "$TUNNEL_CONFIG" | jq -e '.success' | grep -q true; then
     if echo "$TUNNEL_CONFIG" | jq -e '.result.config.ingress[] | select(.hostname == "dashboard.beautymolt.com")' > /dev/null 2>&1; then
-      echo -e "  v Cloudflare Tunnel: dashboard.beautymolt.com bereits vorhanden"
+      echo -e "  v Cloudflare Tunnel bereits vorhanden"
     else
       NEW_INGRESS=$(echo "$TUNNEL_CONFIG" | jq '
         .result.config.ingress = (
@@ -575,8 +581,7 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
       ')
       PUT_RESULT=$(curl -s -X PUT \
         "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
-        -H "Authorization: Bearer ${CF_TOKEN}" \
-        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${CF_TOKEN}" -H "Content-Type: application/json" \
         --data "$NEW_INGRESS")
       if echo "$PUT_RESULT" | jq -e '.success' | grep -q true; then
         echo -e "  ${COLOR_GREEN}+ Cloudflare Tunnel hinzugefuegt${COLOR_NC}"
@@ -628,8 +633,10 @@ else
   echo -e "${COLOR_RED}DB Mount:      FEHLER${COLOR_NC}"
 fi
 
-if docker inspect forge-dashboard 2>/dev/null | grep -q "forge-db"; then
-  echo -e "${COLOR_GREEN}Dashboard:     OK${COLOR_NC}"
+if docker inspect forge-dashboard 2>/dev/null | grep -q "workspace"; then
+  echo -e "${COLOR_GREEN}Dashboard:     OK (inkl. Workspace)${COLOR_NC}"
+elif docker inspect forge-dashboard 2>/dev/null | grep -q "forge-db"; then
+  echo -e "${COLOR_YELLOW}Dashboard:     OK (Workspace fehlt noch)${COLOR_NC}"
 else
   echo -e "${COLOR_YELLOW}Dashboard:     ! nicht gestartet${COLOR_NC}"
 fi
