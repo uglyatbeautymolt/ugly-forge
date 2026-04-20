@@ -353,24 +353,36 @@ SQL
 
 echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
-# Volume Mount via grep (Zeilennummer) + sed einfuegen -- robust gegen Kommentare und Sonderzeichen
+# Volume Mount via awk einfuegen.
+# awk -v uebergibt Variablen sicher -- keine Slash-Probleme wie bei sed.
+# Strategie: Zeile mit /home/node/www finden, danach neue Mount-Zeile einfuegen.
+# Idempotent: grep prueft vorher ob forge-db bereits vorhanden.
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 if grep -qF "forge-db" "$STACK_COMPOSE" 2>/dev/null; then
   echo -e "  v DB Volume Mount bereits vorhanden"
 else
-  # Finde die Zeilennummer der www-Mount Zeile im openclaw-Block
-  # grep -n liefert z.B. "45:      - ./www:/home/node/www  # ..."
-  WWW_LINE=$(grep -n '/home/node/www' "$STACK_COMPOSE" | head -1 | cut -d: -f1)
+  DB_MOUNT="      - ${FORGE_DB_DIR}:/home/node/forge-db"
+  TMPFILE="$(mktemp)"
 
-  if [ -z "$WWW_LINE" ]; then
-    echo -e "${COLOR_RED}www-Mount nicht gefunden in $STACK_COMPOSE${COLOR_NC}"
-    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes:${COLOR_NC}"
-    echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
+  awk -v mount="$DB_MOUNT" '
+    {
+      print
+      if (!inserted && index($0, "/home/node/www") > 0) {
+        print mount
+        inserted = 1
+      }
+    }
+  ' "$STACK_COMPOSE" > "$TMPFILE"
+
+  # Pruefen ob der Mount im Output ist
+  if grep -qF "forge-db" "$TMPFILE"; then
+    mv "$TMPFILE" "$STACK_COMPOSE"
+    echo -e "  + DB Volume Mount eingefuegt"
   else
-    # sed: nach Zeile $WWW_LINE eine neue Zeile einfuegen
-    # Einrueckung identisch zur www-Zeile (6 Spaces)
-    sed -i "${WWW_LINE}a\\      - ${FORGE_DB_DIR}:/home/node/forge-db" "$STACK_COMPOSE"
-    echo -e "  + DB Volume Mount nach Zeile $WWW_LINE eingefuegt"
+    rm -f "$TMPFILE"
+    echo -e "${COLOR_RED}awk-Patch fehlgeschlagen -- /home/node/www nicht gefunden${COLOR_NC}"
+    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes in $STACK_COMPOSE:${COLOR_NC}"
+    echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
   fi
 fi
 
