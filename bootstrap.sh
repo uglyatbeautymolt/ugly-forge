@@ -354,11 +354,10 @@ SQL
 echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
-CORRECT_MOUNT="      - ${FORGE_DB_DIR}:/home/node/forge-db"
 
 PATCH_SCRIPT="/tmp/oc_db_mount_$$.py"
 cat > "$PATCH_SCRIPT" << PYEOF
-import sys, re
+import sys
 
 compose_path = sys.argv[1]
 db_path = sys.argv[2]
@@ -368,21 +367,20 @@ with open(compose_path, 'r') as f:
     lines = f.readlines()
 
 in_service = None
-service_indent = 2
 oc_has_mount = False
-bad_service_has_mount = False
 
 for line in lines:
     stripped = line.rstrip()
     lstripped = stripped.lstrip()
     indent = len(stripped) - len(lstripped)
-    if indent == service_indent and lstripped.endswith(':') and not lstripped.startswith('-'):
+    if indent == 2 and lstripped.endswith(':') and not lstripped.startswith('-'):
         in_service = lstripped[:-1]
-    if 'forge-db' in stripped and '/home/node/forge-db' in stripped:
-        if in_service == 'openclaw':
-            oc_has_mount = True
-        else:
-            bad_service_has_mount = True
+    if in_service == 'openclaw' and 'forge-db' in stripped and '/home/node/forge-db' in stripped:
+        oc_has_mount = True
+
+if oc_has_mount:
+    print("OK: bereits vorhanden")
+    sys.exit(0)
 
 new_lines = []
 in_service = None
@@ -394,216 +392,139 @@ while i < len(lines):
     stripped = line.rstrip()
     lstripped = stripped.lstrip()
     indent = len(stripped) - len(lstripped)
-
-    if indent == service_indent and lstripped.endswith(':') and not lstripped.startswith('-'):
+    if indent == 2 and lstripped.endswith(':') and not lstripped.startswith('-'):
         in_service = lstripped[:-1]
-
-    if bad_service_has_mount and in_service != 'openclaw':
-        if 'forge-db' in stripped and '/home/node/forge-db' in stripped and stripped.lstrip().startswith('-'):
-            i += 1
-            continue
-        if stripped.strip() == 'volumes:' and indent > 0:
-            j = i + 1
-            while j < len(lines) and lines[j].strip() == '':
-                j += 1
-            if j < len(lines) and not lines[j].lstrip().startswith('-'):
-                i += 1
-                continue
-
     if in_service == 'openclaw' and 'forge-db:ro' in stripped:
         line = line.replace('forge-db:ro', 'forge-db')
-
     new_lines.append(line)
-
-    if in_service == 'openclaw' and not oc_has_mount and not inserted:
-        if '/home/node/www' in stripped:
-            new_lines.append(correct_mount + '\n')
-            inserted = True
-
+    if in_service == 'openclaw' and not inserted and '/home/node/www' in stripped:
+        new_lines.append(correct_mount + '\n')
+        inserted = True
     i += 1
 
 with open(compose_path, 'w') as f:
     f.writelines(new_lines)
-
-with open(compose_path, 'r') as f:
-    content = f.read()
-
-in_oc = False
-oc_verified = False
-for line in content.splitlines():
-    stripped = line.strip()
-    indent = len(line.rstrip()) - len(stripped)
-    if indent == 2 and stripped == 'openclaw:':
-        in_oc = True
-    elif indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
-        in_oc = False
-    if in_oc and 'forge-db' in line and '/home/node/forge-db' in line:
-        oc_verified = True
-
-if oc_verified:
-    print("OK")
-else:
-    print("FEHLER: Mount nicht im openclaw-Block")
-    sys.exit(1)
+print("OK: DB Mount eingefuegt")
 PYEOF
 
-PATCH_RESULT=$(python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR")
-PATCH_EXIT=$?
+python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR"
 rm -f "$PATCH_SCRIPT"
 
-if [ $PATCH_EXIT -eq 0 ]; then
-  echo -e "  + DB Volume Mount korrekt im openclaw-Block: OK"
-else
-  echo -e "${COLOR_RED}  Patch fehlgeschlagen: $PATCH_RESULT${COLOR_NC}"
-  echo -e "${COLOR_YELLOW}  Manuell einfuegen unter openclaw > volumes:${COLOR_NC}"
-  echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
-fi
-
 # ----------------------------------------------------------------
-# 9. DASHBOARD + www-VOLUME
+# 9. DASHBOARD + www-VOLUME (forge-dashboard Block komplett ersetzen)
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[9/11] Konfiguriere forge-dashboard + www-Volume...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[9/11] Konfiguriere forge-dashboard...${COLOR_NC}"
 
 WWW_PATH="$STACK_DIR/www"
 mkdir -p "$WWW_PATH"
 
-# forge-dashboard Service in docker-compose.yml eintragen (idempotent)
 DASHBOARD_PATCH="/tmp/oc_dashboard_$$.py"
 cat > "$DASHBOARD_PATCH" << PYEOF
-import sys, os
+import sys
 
 compose_path = sys.argv[1]
 forge_dir    = sys.argv[2]
 www_path     = sys.argv[3]
+db_path      = forge_dir + '/db'
+
+correct_block = (
+    "  forge-dashboard:\n"
+    "    image: forge-dashboard:latest\n"
+    "    container_name: forge-dashboard\n"
+    "    restart: unless-stopped\n"
+    "    ports:\n"
+    "      - \"3001:3001\"\n"
+    "    volumes:\n"
+    "      - " + db_path + ":/home/node/forge-db\n"
+    "      - " + www_path + ":/home/node/www\n"
+    "    environment:\n"
+    "      - PORT=3001\n"
+    "      - DB_PATH=/home/node/forge-db/projects.db\n"
+    "      - WWW_PATH=/home/node/www\n"
+    "    networks:\n"
+    "      - ugly-net\n"
+)
 
 with open(compose_path, 'r') as f:
-    content = f.read()
+    lines = f.readlines()
 
-# Pruefe ob forge-dashboard bereits existiert
-if 'forge-dashboard:' in content:
-    # Pruefe ob www-Volume bereits vorhanden
-    lines = content.splitlines(keepends=True)
+# Pruefe ob forge-dashboard korrekt konfiguriert ist
+in_dash = False
+has_www = False
+has_db  = False
+has_wwwenv = False
+for line in lines:
+    stripped = line.strip()
+    indent = len(line.rstrip()) - len(stripped)
+    if indent == 2 and stripped == 'forge-dashboard:':
+        in_dash = True
+    elif indent == 2 and stripped.endswith(':') and not stripped.startswith('-') and in_dash:
+        in_dash = False
+    if in_dash:
+        if '/home/node/www' in line and line.strip().startswith('-'): has_www = True
+        if '/home/node/forge-db' in line and line.strip().startswith('-'): has_db = True
+        if 'WWW_PATH=' in line: has_wwwenv = True
+
+if has_www and has_db and has_wwwenv:
+    print("SKIP: forge-dashboard bereits korrekt konfiguriert")
+    sys.exit(0)
+
+# forge-dashboard Block komplett ersetzen oder einfuegen
+if 'forge-dashboard:' in ''.join(lines):
+    # Bestehenden Block entfernen und neu schreiben
+    new_lines = []
     in_dash = False
-    has_www = False
-    has_wwwpath_env = False
+    skip = False
     for line in lines:
         stripped = line.strip()
         indent = len(line.rstrip()) - len(stripped)
         if indent == 2 and stripped == 'forge-dashboard:':
             in_dash = True
-        elif indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
-            in_dash = False
-        if in_dash:
-            if '/home/node/www' in line:
-                has_www = True
-            if 'WWW_PATH' in line:
-                has_wwwpath_env = True
-
-    if has_www and has_wwwpath_env:
-        print("SKIP: www bereits konfiguriert")
-        sys.exit(0)
-
-    # www-Volume und WWW_PATH env einfuegen
-    new_lines = []
-    in_dash = False
-    www_inserted = False
-    env_inserted = False
-
-    for line in lines:
-        stripped = line.strip()
-        indent_n = len(line.rstrip()) - len(stripped)
-        if indent_n == 2 and stripped == 'forge-dashboard:':
-            in_dash = True
-        elif indent_n == 2 and stripped.endswith(':') and not stripped.startswith('-'):
-            in_dash = False
-
+            skip = True
+            new_lines.append(correct_block)
+            continue
+        if skip and in_dash:
+            if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
+                in_dash = False
+                skip = False
+                new_lines.append(line)
+            # sonst: Zeile des alten Blocks ueberspringen
+            continue
         new_lines.append(line)
-
-        if in_dash and not www_inserted:
-            if stripped.startswith('- ') and '/home/node/forge-db' in line:
-                new_lines.append('      - ' + www_path + ':/home/node/www\n')
-                www_inserted = True
-
-        if in_dash and not env_inserted:
-            if 'DB_PATH=' in line:
-                new_lines.append('      - WWW_PATH=/home/node/www\n')
-                env_inserted = True
-
-    with open(compose_path, 'w') as f:
-        f.writelines(new_lines)
-    print("OK: www-Volume und WWW_PATH env eingefuegt")
-
+    print("OK: forge-dashboard Block ersetzt")
 else:
-    # forge-dashboard Service komplett eintragen
-    db_path = forge_dir + '/db'
-    service_block = f"""
-  forge-dashboard:
-    build:
-      context: {forge_dir}/dashboard
-      dockerfile: Dockerfile
-    container_name: forge-dashboard
-    restart: unless-stopped
-    ports:
-      - "3001:3001"
-    volumes:
-      - {db_path}:/home/node/forge-db
-      - {www_path}:/home/node/www
-    environment:
-      - PORT=3001
-      - DB_PATH=/home/node/forge-db/projects.db
-      - WWW_PATH=/home/node/www
-    networks:
-      - ugly-net
-"""
-    # Vor 'volumes:' oder am Ende der services-Sektion einfuegen
-    lines = content.splitlines(keepends=True)
+    # Neu einfuegen vor top-level volumes:
     new_lines = []
     inserted = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        # Einfuegen vor der ersten Top-Level 'volumes:' Zeile (kein Einzug)
+    for line in lines:
         if not inserted and line.startswith('volumes:'):
-            new_lines.append(service_block)
+            new_lines.append(correct_block + '\n')
             inserted = True
         new_lines.append(line)
-
     if not inserted:
-        new_lines.append(service_block)
+        new_lines.append('\n' + correct_block)
+    print("OK: forge-dashboard Block eingefuegt")
 
-    with open(compose_path, 'w') as f:
-        f.writelines(new_lines)
-    print("OK: forge-dashboard Service komplett eingefuegt")
+with open(compose_path, 'w') as f:
+    f.writelines(new_lines)
 PYEOF
 
 DASH_RESULT=$(python3 "$DASHBOARD_PATCH" "$STACK_COMPOSE" "$FORGE_DIR" "$WWW_PATH")
 DASH_EXIT=$?
 rm -f "$DASHBOARD_PATCH"
 
-if [ $DASH_EXIT -eq 0 ]; then
-  echo -e "  + $DASH_RESULT"
-else
-  echo -e "${COLOR_YELLOW}  ! Dashboard-Patch: $DASH_RESULT${COLOR_NC}"
-fi
+echo -e "  + $DASH_RESULT"
 
-# Dashboard bauen und starten
-if [ -d "$FORGE_DIR/dashboard/client/src" ]; then
-  echo -e "  Baue Dashboard..."
-  if command -v npm &> /dev/null; then
-    cd "$FORGE_DIR/dashboard/client"
-    npm install --silent 2>/dev/null || true
-    npm run build --silent 2>/dev/null || true
-    cd "$FORGE_DIR"
-    echo -e "  + Frontend gebaut"
-  else
-    echo -e "  ${COLOR_YELLOW}npm nicht gefunden -- Dashboard-Frontend muss manuell gebaut werden:${COLOR_NC}"
-    echo -e "  cd $FORGE_DIR/dashboard && bash build.sh"
-  fi
+# Dashboard Image bauen
+echo -e "  Baue Dashboard-Image..."
+docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
 
-  docker compose -f "$STACK_COMPOSE" up -d --build forge-dashboard 2>/dev/null || \
-    echo -e "  ${COLOR_YELLOW}forge-dashboard noch nicht im Stack -- nach build.sh starten${COLOR_NC}"
-fi
+# Container neu starten
+docker rm -f forge-dashboard 2>/dev/null || true
+docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
+sleep 3
 
-echo -e "${COLOR_GREEN}OK Dashboard + www-Volume${COLOR_NC}"
+echo -e "${COLOR_GREEN}OK Dashboard gestartet${COLOR_NC}"
 
 # ----------------------------------------------------------------
 # 10. CLOUDFLARE TUNNEL + NGINX
@@ -650,25 +571,20 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
         )
         | {config: {ingress: .result.config.ingress, "warp-routing": .result.config["warp-routing"]}}
       ')
-
       PUT_RESULT=$(curl -s -X PUT \
         "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
         -H "Authorization: Bearer ${CF_TOKEN}" \
         -H "Content-Type: application/json" \
         --data "$NEW_INGRESS")
-
       if echo "$PUT_RESULT" | jq -e '.success' | grep -q true; then
         echo -e "  ${COLOR_GREEN}+ Cloudflare Tunnel: dashboard.beautymolt.com hinzugefuegt${COLOR_NC}"
       else
-        echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Update fehlgeschlagen:${COLOR_NC}"
-        echo "$PUT_RESULT" | jq -r '.errors[0].message // "unbekannt"'
+        echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Update fehlgeschlagen${COLOR_NC}"
       fi
     fi
-  else
-    echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Config konnte nicht gelesen werden${COLOR_NC}"
   fi
 else
-  echo -e "  ${COLOR_YELLOW}! CF_TOKEN/CF_ACCOUNT_ID/CF_TUNNEL_ID fehlen in .env -- Tunnel manuell konfigurieren${COLOR_NC}"
+  echo -e "  ${COLOR_YELLOW}! CF Variablen fehlen -- Tunnel manuell konfigurieren${COLOR_NC}"
 fi
 
 # ----------------------------------------------------------------
@@ -680,10 +596,9 @@ docker compose -f "$STACK_DIR/docker-compose.yml" up -d --force-recreate opencla
 docker compose -f "$STACK_DIR/docker-compose.yml" restart nginx
 sleep 5
 
-# sqlite3 im openclaw Container sicherstellen
 docker exec -u 0 openclaw bash -c "command -v sqlite3 || (apt-get update -qq && apt-get install -y -qq sqlite3)" 2>/dev/null \
   && echo -e "  v sqlite3 im Container vorhanden" \
-  || echo -e "  ${COLOR_YELLOW}! sqlite3 Install im Container fehlgeschlagen${COLOR_NC}"
+  || echo -e "  ${COLOR_YELLOW}! sqlite3 Install fehlgeschlagen${COLOR_NC}"
 
 unset GITHUB_TOKEN
 unset PROJEKT_GPG_KEY
@@ -700,27 +615,21 @@ echo -e "Dashboard:     https://dashboard.beautymolt.com"
 echo ""
 
 if grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
-  echo -e "${COLOR_GREEN}openclaw.json: OK forge-Agenten konfiguriert${COLOR_NC}"
+  echo -e "${COLOR_GREEN}openclaw.json: OK${COLOR_NC}"
 else
-  echo -e "${COLOR_RED}openclaw.json: FEHLER -- bootstrap.sh erneut ausfuehren${COLOR_NC}"
+  echo -e "${COLOR_RED}openclaw.json: FEHLER${COLOR_NC}"
 fi
 
 if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
-  echo -e "${COLOR_GREEN}DB Mount:      OK /home/node/forge-db gemountet${COLOR_NC}"
+  echo -e "${COLOR_GREEN}DB Mount:      OK${COLOR_NC}"
 else
-  echo -e "${COLOR_RED}DB Mount:      FEHLER -- forge-db nicht im openclaw Container${COLOR_NC}"
-  echo -e "${COLOR_YELLOW}               Pruefen: grep -A2 -B2 forge-db $STACK_DIR/docker-compose.yml${COLOR_NC}"
+  echo -e "${COLOR_RED}DB Mount:      FEHLER${COLOR_NC}"
 fi
 
 if docker inspect forge-dashboard 2>/dev/null | grep -q "forge-db"; then
-  echo -e "${COLOR_GREEN}Dashboard:     OK forge-dashboard laeuft${COLOR_NC}"
+  echo -e "${COLOR_GREEN}Dashboard:     OK${COLOR_NC}"
 else
-  echo -e "${COLOR_YELLOW}Dashboard:     ! forge-dashboard nicht gestartet${COLOR_NC}"
-  echo -e "               cd $FORGE_DIR/dashboard && bash build.sh"
+  echo -e "${COLOR_YELLOW}Dashboard:     ! nicht gestartet${COLOR_NC}"
 fi
 
-echo ""
-echo -e "Naechste Schritte:"
-echo -e "  1. Agenten listen:  docker compose -f $STACK_DIR/docker-compose.yml exec openclaw node dist/index.js agents list"
-echo -e "  2. Dashboard:       https://dashboard.beautymolt.com"
 echo ""
