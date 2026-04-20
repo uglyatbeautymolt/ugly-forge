@@ -12,6 +12,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── Frontend statisch servieren ────────────────────────────────
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
 // ─── DB verbinden ───────────────────────────────────────────────
 let db;
 try {
@@ -198,6 +201,11 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// ─── SPA Fallback — alle nicht-API Routen ans Frontend ──────────
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
+
 // ─── HTTP + WebSocket Server ─────────────────────────────────────
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -208,7 +216,6 @@ wss.on('connection', (ws, req) => {
   clients.add(ws);
   console.log(`WS Client verbunden. Gesamt: ${clients.size}`);
 
-  // Sofort aktuellen Stand senden
   sendSnapshot(ws);
 
   ws.on('close', () => {
