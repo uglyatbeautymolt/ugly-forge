@@ -49,6 +49,7 @@ export default function ProjectsView({ projects, tasks }) {
 
 function ProjectCard({ project, tasks, isOpen, onToggle }) {
   const [files, setFiles] = useState([]);
+  const [noFiles, setNoFiles] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileContent, setFileContent] = useState(null);
@@ -62,23 +63,28 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
   const budgetWarn = budgetPct >= 80 && budgetPct < 100;
   const tasksByStatus = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
 
-  // Dateien laden wenn Karte geöffnet wird
+  const slug = slugify(project.name);
+
+  // Nur Projektordner laden — kein Fallback auf Root
   useEffect(() => {
     if (!isOpen) return;
-    const slug = slugify(project.name);
-    // Versuche zuerst Projektordner, dann Root
+    setFiles([]);
+    setNoFiles(false);
+    setSelectedFile(null);
+    setFileContent(null);
     fetch(`/api/files?path=${encodeURIComponent(slug)}`)
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
-          setFiles(data.map(f => ({ ...f, basePath: slug })));
+          setFiles(data);
+          setNoFiles(false);
         } else {
-          // Fallback: Root zeigen
-          return fetch('/api/files').then(r => r.json()).then(d => setFiles(d || []));
+          setFiles([]);
+          setNoFiles(true);
         }
       })
-      .catch(() => setFiles([]));
-  }, [isOpen, project.name]);
+      .catch(() => { setFiles([]); setNoFiles(true); });
+  }, [isOpen, slug]);
 
   const handleFileClick = useCallback(async (entry) => {
     if (entry.type === 'dir') {
@@ -86,10 +92,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
       if (!expanded[entry.path]) {
         const children = await fetch(`/api/files?path=${encodeURIComponent(entry.path)}`)
           .then(r => r.json()).catch(() => []);
-        setFiles(prev => prev.map(f =>
-          f.path === entry.path ? { ...f, children } :
-          f.children ? { ...f, children: injectChildren(f.children, entry.path, children) } : f
-        ));
+        setFiles(prev => injectChildren(prev, entry.path, children));
       }
       return;
     }
@@ -119,7 +122,6 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
           borderBottom: isOpen ? '1px solid var(--border)' : 'none'
         }}
       >
-        {/* Links */}
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
             <div style={{
@@ -152,7 +154,6 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
             ))}
           </div>
         </div>
-        {/* Rechts: Metriken */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '160px' }}>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
@@ -177,7 +178,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
         </div>
       </div>
 
-      {/* Aufgeklappter Bereich: File Browser */}
+      {/* Aufgeklappter Bereich */}
       {isOpen && (
         <div style={{ display: 'flex', height: '380px' }}>
           {/* Dateibaum */}
@@ -186,11 +187,12 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
             overflowY: 'auto', padding: '10px'
           }}>
             <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', padding: '0 4px' }}>
-              📂 {slugify(project.name)}/
+              📂 www/{slug}/
             </div>
-            {files.length === 0 ? (
-              <div style={{ fontSize: '12px', color: 'var(--text3)', padding: '8px 4px' }}>
-                Keine Dateien gefunden
+            {noFiles ? (
+              <div style={{ fontSize: '12px', color: 'var(--text3)', padding: '8px 4px', lineHeight: '1.5' }}>
+                Noch keine generierten Dateien.<br/>
+                <span style={{ fontSize: '11px', opacity: 0.7 }}>Agenten schreiben in<br/>www/{slug}/</span>
               </div>
             ) : (
               <FileTree entries={files} selected={selectedFile} onSelect={handleFileClick} expanded={expanded} />
@@ -199,9 +201,16 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
 
           {/* Inhalt */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {!selectedFile && (
+            {!selectedFile && !noFiles && (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '13px' }}>
                 ← Datei auswählen
+              </div>
+            )}
+            {noFiles && (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px', color: 'var(--text3)' }}>
+                <div style={{ fontSize: '2rem' }}>🔨</div>
+                <div style={{ fontSize: '13px' }}>Agenten arbeiten noch...</div>
+                <div style={{ fontSize: '11px', fontFamily: 'var(--mono)', opacity: 0.6 }}>www/{slug}/ noch nicht erstellt</div>
               </div>
             )}
             {loadingFile && (
