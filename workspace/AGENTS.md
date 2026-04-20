@@ -52,8 +52,30 @@ Jeder Agent liest UND schreibt:
 | Skills (shared) | /home/node/.openclaw/skills/ |
 | DB | /home/node/forge-db/projects.db |
 | Workspace | /home/node/.openclaw/workspace/ |
-| Projekte | /home/node/.openclaw/workspace/projects/[name]/ |
-| Web Output | /home/node/www/ (nginx serviert direkt) |
+| Projektdokumente | /home/node/.openclaw/workspace/projects/[PROJECT_ID]/ |
+| Web Output | /home/node/www/[PROJECT_ID]/ (nginx serviert direkt) |
+
+## Ordner- und Dateinamen-Konvention
+
+**PFLICHT — gilt für alle Agenten ohne Ausnahme:**
+
+- Projektordner werden IMMER mit der `PROJECT_ID` aus der SQLite-DB benannt
+- NIEMALS den Projektnamen als Ordnernamen verwenden
+- Die `PROJECT_ID` ist unveränderlich — der Projektname kann sich ändern, die ID nicht
+
+```
+RICHTIG:  /home/node/.openclaw/workspace/projects/proj_abc123/requirements.md
+FALSCH:   /home/node/.openclaw/workspace/projects/Bella Vista/requirements.md
+FALSCH:   /home/node/.openclaw/workspace/projects/bella-vista/requirements.md
+
+RICHTIG:  /home/node/www/proj_abc123/index.html
+FALSCH:   /home/node/www/bella-vista/index.html
+```
+
+Die `PROJECT_ID` wird immer aus der DB gelesen:
+```
+exec: sqlite3 /home/node/forge-db/projects.db "SELECT id FROM projects WHERE name = '[name]';"
+```
 
 ## Loop-Schutz
 
@@ -71,6 +93,7 @@ Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 5. **exec für SQLite** — kein direkter DB-Zugriff ohne exec-Tool
 6. **sessions_send für Kommunikation** — kein File-Queue
 7. **SKILL.md descriptions in Anführungszeichen** — unquoted Colons crashen den Parser
+8. **Ordner immer PROJECT_ID** — niemals Projektname oder Slug als Verzeichnisname
 
 ## Agenten-IDs
 
