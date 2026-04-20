@@ -23,7 +23,7 @@
         "workspace": "~/.openclaw/workspace",
         "model": {
           "primary": "openrouter/google/gemini-2.5-flash-lite",
-          "fallbacks": ["openrouter/google/gemini-2.5-flash-lite:free"]
+          "fallbacks": ["openrouter/google/gemini-2.5-flash"]
         }
       },
       {
@@ -78,7 +78,7 @@
         "id": "forge-frontend",
         "workspace": "~/.openclaw/workspace",
         "model": {
-          "primary": "openrouter/qwen/qwen3-coder:free",
+          "primary": "openrouter/qwen/qwen3-coder",
           "fallbacks": ["openrouter/google/gemini-2.5-flash"]
         }
       },
