@@ -353,40 +353,44 @@ SQL
 
 echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
-# Volume Mount in docker-compose.yml einfügen (Python -- robust, kein sed-Regex-Problem)
+# Volume Mount in docker-compose.yml einfuegen
+# Strategie: Einrueckungstiefe bestimmt ob eine Zeile ein Top-Level-Service ist (2 Spaces)
+# Der openclaw-Block beginnt bei Einrueckung=2, endet wenn der naechste Service bei Einrueckung=2 kommt
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 if grep -q "forge-db\|forge_db" "$STACK_COMPOSE" 2>/dev/null; then
   echo -e "  v DB Volume Mount bereits vorhanden"
 else
   PATCH_SCRIPT="/tmp/oc_compose_patch_$$.py"
-  cat > "$PATCH_SCRIPT" << PYEOF
+  cat > "$PATCH_SCRIPT" << 'PYEOF'
 import sys
 
-compose_path = "$STACK_COMPOSE"
-db_host_path = "$FORGE_DB_DIR"
+compose_path = sys.argv[1]
+db_host_path = sys.argv[2]
 
 with open(compose_path, 'r') as f:
     lines = f.readlines()
 
-# Suche die Zeile mit dem www-Mount im openclaw-Block
 new_lines = []
 in_openclaw = False
 inserted = False
 
-for i, line in enumerate(lines):
-    stripped = line.rstrip()
-    # Erkennen ob wir im openclaw Service sind
-    if stripped.strip() == 'openclaw:':
-        in_openclaw = True
-    elif stripped.strip().endswith(':') and not stripped.strip().startswith('-') and 'openclaw:' not in stripped:
-        # Neuer Service beginnt
-        in_openclaw = False
+for line in lines:
+    content = line.rstrip()
+    stripped = content.lstrip()
+    indent = len(content) - len(stripped)
+
+    # Top-Level Service-Erkennung: genau 2 Spaces Einrueckung, endet mit ':'
+    # und ist kein Listenelement (kein '-')
+    if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
+        if stripped == 'openclaw:':
+            in_openclaw = True
+        else:
+            in_openclaw = False
 
     new_lines.append(line)
 
-    # Nach dem www-Mount einfügen
-    if in_openclaw and not inserted and '/home/node/www' in stripped:
-        indent = len(line) - len(line.lstrip())
+    # Nach dem www-Mount einfuegen (enthaelt /home/node/www)
+    if in_openclaw and not inserted and '/home/node/www' in content:
         mount_line = ' ' * indent + f'- {db_host_path}:/home/node/forge-db\n'
         new_lines.append(mount_line)
         inserted = True
@@ -397,11 +401,11 @@ with open(compose_path, 'w') as f:
 if inserted:
     print("DB Volume Mount eingefuegt")
 else:
-    print("WARNUNG: www-Mount nicht gefunden -- manuell pruefen")
+    print("WARNUNG: www-Mount im openclaw-Block nicht gefunden")
     sys.exit(1)
 PYEOF
 
-  python3 "$PATCH_SCRIPT"
+  python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR"
   PATCH_EXIT=$?
   rm -f "$PATCH_SCRIPT"
 
@@ -485,7 +489,8 @@ fi
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[10/10] Starte OpenClaw + nginx neu...${COLOR_NC}"
 
-docker compose -f "$STACK_DIR/docker-compose.yml" restart openclaw nginx
+docker compose -f "$STACK_DIR/docker-compose.yml" up -d --force-recreate openclaw
+docker compose -f "$STACK_DIR/docker-compose.yml" restart nginx
 sleep 5
 
 unset GITHUB_TOKEN
@@ -506,6 +511,14 @@ if grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
   echo -e "${COLOR_GREEN}openclaw.json: OK forge-Agenten konfiguriert${COLOR_NC}"
 else
   echo -e "${COLOR_RED}openclaw.json: FEHLER -- bootstrap.sh erneut ausfuehren${COLOR_NC}"
+fi
+
+# DB Mount Verifikation
+if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
+  echo -e "${COLOR_GREEN}DB Mount:      OK /home/node/forge-db gemountet${COLOR_NC}"
+else
+  echo -e "${COLOR_RED}DB Mount:      FEHLER -- forge-db nicht gemountet${COLOR_NC}"
+  echo -e "${COLOR_YELLOW}               Manuell: cd $STACK_DIR && docker compose up -d --force-recreate openclaw${COLOR_NC}"
 fi
 
 echo ""
