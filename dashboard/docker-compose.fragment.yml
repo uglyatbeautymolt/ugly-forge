@@ -16,12 +16,12 @@
 #     ports:
 #       - "3001:3001"
 #     volumes:
-#       - ../ugly-forge/db:/home/node/forge-db:ro
+#       - ../ugly-forge/db:/home/node/forge-db
 #     environment:
 #       - PORT=3001
 #       - DB_PATH=/home/node/forge-db/projects.db
 #     networks:
-#       - default
+#       - ugly-net
 #
 # Dann nginx-Config:
 #   server {
