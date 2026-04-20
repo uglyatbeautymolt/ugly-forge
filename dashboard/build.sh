@@ -11,7 +11,6 @@ if [ ! -d "$STACK_DIR" ]; then STACK_DIR="$(dirname "$FORGE_DIR")/ugly-stack"; f
 CLIENT_DIR="$FORGE_DIR/dashboard/client"
 DASHBOARD_DIR="$FORGE_DIR/dashboard"
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
-NGINX_DIR="$STACK_DIR/nginx/conf.d"
 
 echo "Baue ugly-forge Dashboard..."
 
@@ -27,19 +26,21 @@ npm --prefix "$CLIENT_DIR" run build
 echo "Docker build..."
 docker build -t forge-dashboard:latest "$DASHBOARD_DIR"
 
-# 3. forge-dashboard Service in docker-compose.yml eintragen
+# 3. forge-dashboard Service in docker-compose.yml eintragen (korrekt unter services:)
 if grep -q 'forge-dashboard' "$STACK_COMPOSE" 2>/dev/null; then
   echo "  v forge-dashboard bereits in docker-compose.yml"
 else
-  # Python fuer praezises YAML-Einfuegen unter services:
-  python3 - << PYEOF
+  MERGE_SCRIPT="/tmp/dc_merge_$$.py"
+  cat > "$MERGE_SCRIPT" << PYEOF
 import re
 
 path = "$STACK_COMPOSE"
-with open(path, 'r') as f:
+forge_db = "$FORGE_DIR/db"
+
+with open(path) as f:
     content = f.read()
 
-service_block = """
+service = f"""
   forge-dashboard:
     image: forge-dashboard:latest
     container_name: forge-dashboard
@@ -47,55 +48,41 @@ service_block = """
     ports:
       - "3001:3001"
     volumes:
-      - $FORGE_DIR/db:/home/node/forge-db:ro
+      - {forge_db}:/home/node/forge-db:ro
     environment:
       - PORT=3001
       - DB_PATH=/home/node/forge-db/projects.db
+    networks:
+      - ugly-net
 """
 
-# Einfuegen nach der letzten Service-Definition (vor networks: oder am Ende)
-if 'networks:' in content:
-    content = content.replace('\nnetworks:', service_block + '\nnetworks:', 1)
-elif 'volumes:' in content:
-    content = content.replace('\nvolumes:', service_block + '\nvolumes:', 1)
-else:
-    content = content.rstrip() + service_block
+# Einfuegen vor 'volumes:' auf Root-Level (nicht unter services:)
+content = re.sub(r'\nvolumes:', service + '\nvolumes:', content, count=1)
 
 with open(path, 'w') as f:
     f.write(content)
-
-print("forge-dashboard Service eingetragen")
+print("forge-dashboard unter services: eingetragen")
 PYEOF
+
+  python3 "$MERGE_SCRIPT"
+  rm -f "$MERGE_SCRIPT"
   echo "  + forge-dashboard in docker-compose.yml eingetragen"
 fi
 
-# 4. nginx Config fuer den nginx-Container einrichten
-# nginx laeuft als Docker-Container -- Config ins gemountete Verzeichnis kopieren
-NGINX_CONF_FOUND=0
-
-# Suche nginx conf.d Verzeichnis (verschiedene moegliche Pfade)
-for dir in "$STACK_DIR/nginx/conf.d" "$STACK_DIR/nginx" "$STACK_DIR/config/nginx/conf.d" "$STACK_DIR/data/nginx/conf.d"; do
-  if [ -d "$dir" ]; then
-    cp "$DASHBOARD_DIR/nginx.conf" "$dir/forge-dashboard.conf"
-    echo "  + nginx Config kopiert nach: $dir/forge-dashboard.conf"
-    NGINX_CONF_FOUND=1
-    break
-  fi
-done
-
-if [ $NGINX_CONF_FOUND -eq 0 ]; then
-  echo "  ! nginx conf.d Verzeichnis nicht gefunden"
-  echo "    Bitte manuell kopieren in das nginx-Konfigverzeichnis deines Stacks"
-  echo "    Quelle: $DASHBOARD_DIR/nginx.conf"
-  echo "    Dann nginx Container neu starten: docker compose restart nginx"
+# 4. nginx Config in den nginx-Container kopieren
+if [ -d "$STACK_DIR/nginx/conf.d" ]; then
+  cp "$DASHBOARD_DIR/nginx.conf" "$STACK_DIR/nginx/conf.d/forge-dashboard.conf"
+  echo "  + nginx Config kopiert"
+  docker compose -f "$STACK_COMPOSE" restart nginx
 fi
 
 # 5. Dashboard starten
 echo "Starte forge-dashboard..."
 docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
 
+sleep 3
 echo ""
 echo "Dashboard laeuft!"
-echo "  Lokal: http://$(hostname -I | awk '{print $1}'):3001"
-echo ""
-echo "Zum Testen: curl http://localhost:3001/api/health"
+curl -s http://localhost:3001/api/health && echo ""
+echo "  Lokal:  http://localhost:3001"
+echo "  Public: https://dashboard.beautymolt.com"
