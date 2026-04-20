@@ -52,29 +52,36 @@ Jeder Agent liest UND schreibt:
 | Skills (shared) | /home/node/.openclaw/skills/ |
 | DB | /home/node/forge-db/projects.db |
 | Workspace | /home/node/.openclaw/workspace/ |
-| Projektdokumente | /home/node/.openclaw/workspace/projects/[PROJECT_ID]/ |
-| Web Output | /home/node/www/[PROJECT_ID]/ (nginx serviert direkt) |
+| Projektdokumente | /home/node/.openclaw/workspace/projects/[SLUG]/ |
+| Web Output | /home/node/www/[SLUG]/ (nginx serviert direkt) |
 
 ## Ordner- und Dateinamen-Konvention
 
 **PFLICHT — gilt für alle Agenten ohne Ausnahme:**
 
-- Projektordner werden IMMER mit der `PROJECT_ID` aus der SQLite-DB benannt
-- NIEMALS den Projektnamen als Ordnernamen verwenden
-- Die `PROJECT_ID` ist unveränderlich — der Projektname kann sich ändern, die ID nicht
+- Projektordner werden IMMER mit dem `slug` aus der SQLite-DB benannt
+- Der Slug wird beim Projektanlegen einmal generiert und nie mehr geändert
+- NIEMALS den Projektnamen direkt als Ordnernamen verwenden (Leerzeichen, Grossbuchstaben etc.)
 
+Slug-Regel: Projektname lowercase, Leerzeichen → Bindestrich, nur a-z 0-9 -
 ```
-RICHTIG:  /home/node/.openclaw/workspace/projects/proj_abc123/requirements.md
+"Bella Vista"  →  bella-vista
+"My Cool App"  →  my-cool-app
+```
+
+Den Slug immer aus der DB lesen:
+```
+exec: sqlite3 /home/node/forge-db/projects.db "SELECT slug FROM projects WHERE id = '[id]';"
+```
+
+Beispiele:
+```
+RICHTIG:  /home/node/.openclaw/workspace/projects/bella-vista/requirements.md
 FALSCH:   /home/node/.openclaw/workspace/projects/Bella Vista/requirements.md
-FALSCH:   /home/node/.openclaw/workspace/projects/bella-vista/requirements.md
+FALSCH:   /home/node/.openclaw/workspace/projects/d6b34e1a-.../requirements.md
 
-RICHTIG:  /home/node/www/proj_abc123/index.html
-FALSCH:   /home/node/www/bella-vista/index.html
-```
-
-Die `PROJECT_ID` wird immer aus der DB gelesen:
-```
-exec: sqlite3 /home/node/forge-db/projects.db "SELECT id FROM projects WHERE name = '[name]';"
+RICHTIG:  /home/node/www/bella-vista/index.html
+FALSCH:   /home/node/www/Bella Vista/index.html
 ```
 
 ## Loop-Schutz
@@ -93,7 +100,7 @@ Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 5. **exec für SQLite** — kein direkter DB-Zugriff ohne exec-Tool
 6. **sessions_send für Kommunikation** — kein File-Queue
 7. **SKILL.md descriptions in Anführungszeichen** — unquoted Colons crashen den Parser
-8. **Ordner immer PROJECT_ID** — niemals Projektname oder Slug als Verzeichnisname
+8. **Ordner immer SLUG aus DB** — niemals Projektname direkt, niemals UUID
 
 ## Agenten-IDs
 

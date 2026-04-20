@@ -63,9 +63,9 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
   const budgetWarn = budgetPct >= 80 && budgetPct < 100;
   const tasksByStatus = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
 
-  const slug = slugify(project.name);
+  // Slug: aus DB wenn vorhanden, sonst on-the-fly generieren
+  const slug = project.slug || slugify(project.name);
 
-  // Nur Projektordner laden — kein Fallback auf Root
   useEffect(() => {
     if (!isOpen) return;
     setFiles([]);
@@ -113,7 +113,6 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
       background: 'var(--bg2)', border: '1px solid var(--border)',
       borderRadius: '12px', overflow: 'hidden'
     }}>
-      {/* Header — anklickbar */}
       <div
         onClick={onToggle}
         style={{
@@ -135,6 +134,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
               fontSize: '11px', color: 'var(--text3)', background: 'var(--bg4)',
               padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--mono)'
             }}>{project.status}</span>
+            <span style={{ fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)', opacity: 0.5 }}>{slug}/</span>
             <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text3)' }}>
               {isOpen ? '▲' : '▼'}
             </span>
@@ -178,10 +178,8 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
         </div>
       </div>
 
-      {/* Aufgeklappter Bereich */}
       {isOpen && (
         <div style={{ display: 'flex', height: '380px' }}>
-          {/* Dateibaum */}
           <div style={{
             width: '240px', flexShrink: 0, borderRight: '1px solid var(--border)',
             overflowY: 'auto', padding: '10px'
@@ -198,8 +196,6 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
               <FileTree entries={files} selected={selectedFile} onSelect={handleFileClick} expanded={expanded} />
             )}
           </div>
-
-          {/* Inhalt */}
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {!selectedFile && !noFiles && (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '13px' }}>
