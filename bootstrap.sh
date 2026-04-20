@@ -353,68 +353,24 @@ SQL
 
 echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
-# Volume Mount in docker-compose.yml einfuegen
-# Strategie: Einrueckungstiefe bestimmt ob eine Zeile ein Top-Level-Service ist (2 Spaces)
-# Der openclaw-Block beginnt bei Einrueckung=2, endet wenn der naechste Service bei Einrueckung=2 kommt
+# Volume Mount via grep (Zeilennummer) + sed einfuegen -- robust gegen Kommentare und Sonderzeichen
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
-if grep -q "forge-db\|forge_db" "$STACK_COMPOSE" 2>/dev/null; then
+if grep -qF "forge-db" "$STACK_COMPOSE" 2>/dev/null; then
   echo -e "  v DB Volume Mount bereits vorhanden"
 else
-  PATCH_SCRIPT="/tmp/oc_compose_patch_$$.py"
-  cat > "$PATCH_SCRIPT" << 'PYEOF'
-import sys
+  # Finde die Zeilennummer der www-Mount Zeile im openclaw-Block
+  # grep -n liefert z.B. "45:      - ./www:/home/node/www  # ..."
+  WWW_LINE=$(grep -n '/home/node/www' "$STACK_COMPOSE" | head -1 | cut -d: -f1)
 
-compose_path = sys.argv[1]
-db_host_path = sys.argv[2]
-
-with open(compose_path, 'r') as f:
-    lines = f.readlines()
-
-new_lines = []
-in_openclaw = False
-inserted = False
-
-for line in lines:
-    content = line.rstrip()
-    stripped = content.lstrip()
-    indent = len(content) - len(stripped)
-
-    # Top-Level Service-Erkennung: genau 2 Spaces Einrueckung, endet mit ':'
-    # und ist kein Listenelement (kein '-')
-    if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
-        if stripped == 'openclaw:':
-            in_openclaw = True
-        else:
-            in_openclaw = False
-
-    new_lines.append(line)
-
-    # Nach dem www-Mount einfuegen (enthaelt /home/node/www)
-    if in_openclaw and not inserted and '/home/node/www' in content:
-        mount_line = ' ' * indent + f'- {db_host_path}:/home/node/forge-db\n'
-        new_lines.append(mount_line)
-        inserted = True
-
-with open(compose_path, 'w') as f:
-    f.writelines(new_lines)
-
-if inserted:
-    print("DB Volume Mount eingefuegt")
-else:
-    print("WARNUNG: www-Mount im openclaw-Block nicht gefunden")
-    sys.exit(1)
-PYEOF
-
-  python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR"
-  PATCH_EXIT=$?
-  rm -f "$PATCH_SCRIPT"
-
-  if [ $PATCH_EXIT -ne 0 ]; then
-    echo -e "${COLOR_RED}docker-compose.yml Patch fehlgeschlagen -- manuell pruefen${COLOR_NC}"
+  if [ -z "$WWW_LINE" ]; then
+    echo -e "${COLOR_RED}www-Mount nicht gefunden in $STACK_COMPOSE${COLOR_NC}"
     echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes:${COLOR_NC}"
     echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
   else
-    echo -e "  + DB Volume Mount in docker-compose.yml eingefuegt"
+    # sed: nach Zeile $WWW_LINE eine neue Zeile einfuegen
+    # Einrueckung identisch zur www-Zeile (6 Spaces)
+    sed -i "${WWW_LINE}a\\      - ${FORGE_DB_DIR}:/home/node/forge-db" "$STACK_COMPOSE"
+    echo -e "  + DB Volume Mount nach Zeile $WWW_LINE eingefuegt"
   fi
 fi
 
@@ -518,7 +474,7 @@ if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
   echo -e "${COLOR_GREEN}DB Mount:      OK /home/node/forge-db gemountet${COLOR_NC}"
 else
   echo -e "${COLOR_RED}DB Mount:      FEHLER -- forge-db nicht gemountet${COLOR_NC}"
-  echo -e "${COLOR_YELLOW}               Manuell: cd $STACK_DIR && docker compose up -d --force-recreate openclaw${COLOR_NC}"
+  echo -e "${COLOR_YELLOW}               Pruefen: grep forge-db $STACK_DIR/docker-compose.yml${COLOR_NC}"
 fi
 
 echo ""
