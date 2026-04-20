@@ -140,7 +140,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
       </div>
 
       {isOpen && (
-        <div style={{ display: 'flex', height: '420px' }}>
+        <div style={{ display: 'flex', height: 'calc(100vh - 280px)' }}>
           <div style={{ width: '240px', flexShrink: 0, borderRight: '1px solid var(--border)', overflowY: 'auto', padding: '10px' }}>
             <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', padding: '0 4px' }}>
               📂 projects/{slug}/
@@ -173,7 +173,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
                 <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{fileContent.path}</div>
                 <div style={{ flex: 1, overflow: 'auto' }}>
                   {isImage(fileContent.name) ? (
-                    <div style={{ padding: '1rem', textAlign: 'center' }}><img src={`/api/files/raw?path=${encodeURIComponent(fileContent.path)}`} alt={fileContent.name} style={{ maxWidth: '100%', maxHeight: '350px' }} /></div>
+                    <div style={{ padding: '1rem', textAlign: 'center' }}><img src={`/api/files/raw?path=${encodeURIComponent(fileContent.path)}`} alt={fileContent.name} style={{ maxWidth: '100%', maxHeight: '80vh' }} /></div>
                   ) : fileContent.name?.endsWith('.html') ? (
                     <iframe srcDoc={fileContent.content} style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }} sandbox="allow-scripts" title={fileContent.name} />
                   ) : (
