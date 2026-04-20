@@ -265,7 +265,7 @@ PYEOF
 fi
 
 # ----------------------------------------------------------------
-# 8. SQLITE DB + VOLUME MOUNT (openclaw)
+# 8. SQLITE DB + SCHEMA MIGRATION
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[8/11] Initialisiere SQLite Datenbank...${COLOR_NC}"
 
@@ -276,6 +276,7 @@ sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  slug TEXT,
   status TEXT DEFAULT 'planning',
   github_repo TEXT,
   budget_estimated REAL DEFAULT 0,
@@ -351,7 +352,23 @@ CREATE TABLE IF NOT EXISTS communications (
 );
 SQL
 
-echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
+# Migration: slug Spalte zu bestehenden DBs hinzufuegen (idempotent)
+sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
+ALTER TABLE projects ADD COLUMN slug TEXT;
+SQL
+# Fehler ignorieren falls Spalte bereits existiert (ALTER TABLE schlaegt fehl wenn Spalte da)
+true
+
+# Fehlende Slugs aus Namen generieren (idempotent)
+sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
+UPDATE projects
+SET slug = lower(trim(replace(replace(replace(replace(replace(
+  name,
+  ' ', '-'), '_', '-'), '.', '-'), '/', '-'), '--', '-')))
+WHERE slug IS NULL OR slug = '';
+SQL
+
+echo -e "${COLOR_GREEN}OK SQLite DB + Migrationen: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 
@@ -448,7 +465,6 @@ correct_block = (
 with open(compose_path, 'r') as f:
     lines = f.readlines()
 
-# Pruefe ob forge-dashboard korrekt konfiguriert ist
 in_dash = False
 has_www = False
 has_db  = False
@@ -469,9 +485,7 @@ if has_www and has_db and has_wwwenv:
     print("SKIP: forge-dashboard bereits korrekt konfiguriert")
     sys.exit(0)
 
-# forge-dashboard Block komplett ersetzen oder einfuegen
 if 'forge-dashboard:' in ''.join(lines):
-    # Bestehenden Block entfernen und neu schreiben
     new_lines = []
     in_dash = False
     skip = False
@@ -488,12 +502,10 @@ if 'forge-dashboard:' in ''.join(lines):
                 in_dash = False
                 skip = False
                 new_lines.append(line)
-            # sonst: Zeile des alten Blocks ueberspringen
             continue
         new_lines.append(line)
     print("OK: forge-dashboard Block ersetzt")
 else:
-    # Neu einfuegen vor top-level volumes:
     new_lines = []
     inserted = False
     for line in lines:
@@ -515,11 +527,9 @@ rm -f "$DASHBOARD_PATCH"
 
 echo -e "  + $DASH_RESULT"
 
-# Dashboard Image bauen
 echo -e "  Baue Dashboard-Image..."
 docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
 
-# Container neu starten
 docker rm -f forge-dashboard 2>/dev/null || true
 docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
 sleep 3
@@ -558,7 +568,6 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
   TUNNEL_CONFIG=$(curl -s \
     "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
     -H "Authorization: Bearer ${CF_TOKEN}")
-
   if echo "$TUNNEL_CONFIG" | jq -e '.success' | grep -q true; then
     if echo "$TUNNEL_CONFIG" | jq -e '.result.config.ingress[] | select(.hostname == "dashboard.beautymolt.com")' > /dev/null 2>&1; then
       echo -e "  v Cloudflare Tunnel: dashboard.beautymolt.com bereits vorhanden"
@@ -577,7 +586,7 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
         -H "Content-Type: application/json" \
         --data "$NEW_INGRESS")
       if echo "$PUT_RESULT" | jq -e '.success' | grep -q true; then
-        echo -e "  ${COLOR_GREEN}+ Cloudflare Tunnel: dashboard.beautymolt.com hinzugefuegt${COLOR_NC}"
+        echo -e "  ${COLOR_GREEN}+ Cloudflare Tunnel hinzugefuegt${COLOR_NC}"
       else
         echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Update fehlgeschlagen${COLOR_NC}"
       fi
