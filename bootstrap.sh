@@ -265,7 +265,7 @@ PYEOF
 fi
 
 # ----------------------------------------------------------------
-# 8. SQLITE DB
+# 8. SQLITE DB + VOLUME MOUNT
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[8/10] Initialisiere SQLite Datenbank...${COLOR_NC}"
 
@@ -353,13 +353,65 @@ SQL
 
 echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
+# Volume Mount in docker-compose.yml einfügen (Python -- robust, kein sed-Regex-Problem)
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 if grep -q "forge-db\|forge_db" "$STACK_COMPOSE" 2>/dev/null; then
   echo -e "  v DB Volume Mount bereits vorhanden"
 else
-  DB_MOUNT="      - $FORGE_DB_DIR:/home/node/forge-db"
-  sed -i "/\.:\/home\/node\/www/a\\$DB_MOUNT" "$STACK_COMPOSE"
-  echo -e "  + DB Volume Mount in docker-compose.yml ergaenzt"
+  PATCH_SCRIPT="/tmp/oc_compose_patch_$$.py"
+  cat > "$PATCH_SCRIPT" << PYEOF
+import sys
+
+compose_path = "$STACK_COMPOSE"
+db_host_path = "$FORGE_DB_DIR"
+
+with open(compose_path, 'r') as f:
+    lines = f.readlines()
+
+# Suche die Zeile mit dem www-Mount im openclaw-Block
+new_lines = []
+in_openclaw = False
+inserted = False
+
+for i, line in enumerate(lines):
+    stripped = line.rstrip()
+    # Erkennen ob wir im openclaw Service sind
+    if stripped.strip() == 'openclaw:':
+        in_openclaw = True
+    elif stripped.strip().endswith(':') and not stripped.strip().startswith('-') and 'openclaw:' not in stripped:
+        # Neuer Service beginnt
+        in_openclaw = False
+
+    new_lines.append(line)
+
+    # Nach dem www-Mount einfügen
+    if in_openclaw and not inserted and '/home/node/www' in stripped:
+        indent = len(line) - len(line.lstrip())
+        mount_line = ' ' * indent + f'- {db_host_path}:/home/node/forge-db\n'
+        new_lines.append(mount_line)
+        inserted = True
+
+with open(compose_path, 'w') as f:
+    f.writelines(new_lines)
+
+if inserted:
+    print("DB Volume Mount eingefuegt")
+else:
+    print("WARNUNG: www-Mount nicht gefunden -- manuell pruefen")
+    sys.exit(1)
+PYEOF
+
+  python3 "$PATCH_SCRIPT"
+  PATCH_EXIT=$?
+  rm -f "$PATCH_SCRIPT"
+
+  if [ $PATCH_EXIT -ne 0 ]; then
+    echo -e "${COLOR_RED}docker-compose.yml Patch fehlgeschlagen -- manuell pruefen${COLOR_NC}"
+    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes:${COLOR_NC}"
+    echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
+  else
+    echo -e "  + DB Volume Mount in docker-compose.yml eingefuegt"
+  fi
 fi
 
 # ----------------------------------------------------------------
