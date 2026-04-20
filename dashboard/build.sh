@@ -18,7 +18,9 @@ if [ ! -f "$STACK_ENV" ]; then
   echo "FEHLER: .env nicht gefunden: $STACK_ENV"
   exit 1
 fi
-export $(grep -v '^#' "$STACK_ENV" | grep -v '^$' | xargs)
+set +e  # export kann bei bestimmten Werten fehlschlagen
+export $(grep -v '^#' "$STACK_ENV" | grep -v '^$' | xargs 2>/dev/null)
+set -e
 
 # CF_TOKEN und CF_ZONE_ID pruefen
 if [ -z "$CF_TOKEN" ] || [ -z "$CF_ZONE_ID" ]; then
@@ -95,56 +97,62 @@ docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
 sleep 3
 
 # 6. Cloudflare Tunnel konfigurieren
+# Ab hier set -e deaktivieren damit Fehler sichtbar werden
+set +e
+
 echo ""
 echo "Konfiguriere Cloudflare Tunnel..."
 
-# Account ID holen
-ACCOUNT_ID=$(curl -s "https://api.cloudflare.com/client/v4/accounts" \
-  -H "Authorization: Bearer $CF_TOKEN" | \
-  python3 -c "import json,sys; data=json.load(sys.stdin); print(data['result'][0]['id'])" 2>/dev/null)
+# Account ID holen + Rohausgabe bei Fehler zeigen
+CF_RESPONSE=$(curl -s "https://api.cloudflare.com/client/v4/accounts" \
+  -H "Authorization: Bearer $CF_TOKEN")
 
-if [ -z "$ACCOUNT_ID" ]; then
+ACCOUNT_ID=$(echo "$CF_RESPONSE" | python3 -c "import json,sys; data=json.load(sys.stdin); print(data['result'][0]['id'])" 2>&1)
+
+if [ $? -ne 0 ] || [ -z "$ACCOUNT_ID" ]; then
   echo "  FEHLER: Account ID konnte nicht abgerufen werden"
+  echo "  API Antwort: $CF_RESPONSE"
   exit 1
 fi
 echo "  Account ID: $ACCOUNT_ID"
 
-# Tunnel ID holen (erster aktiver Tunnel)
-TUNNEL_ID=$(curl -s "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel?is_deleted=false" \
-  -H "Authorization: Bearer $CF_TOKEN" | \
-  python3 -c "import json,sys; data=json.load(sys.stdin); print(data['result'][0]['id'])" 2>/dev/null)
+# Tunnel ID holen
+CF_TUNNEL_RESPONSE=$(curl -s \
+  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel?is_deleted=false" \
+  -H "Authorization: Bearer $CF_TOKEN")
 
-if [ -z "$TUNNEL_ID" ]; then
+TUNNEL_ID=$(echo "$CF_TUNNEL_RESPONSE" | python3 -c "import json,sys; data=json.load(sys.stdin); print(data['result'][0]['id'])" 2>&1)
+
+if [ $? -ne 0 ] || [ -z "$TUNNEL_ID" ]; then
   echo "  FEHLER: Tunnel ID konnte nicht abgerufen werden"
+  echo "  API Antwort: $CF_TUNNEL_RESPONSE"
   exit 1
 fi
 echo "  Tunnel ID: $TUNNEL_ID"
 
 # Bestehende Ingress-Regeln holen
-EXISTING_INGRESS=$(curl -s \
+CF_CONFIG_RESPONSE=$(curl -s \
   "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/configurations" \
-  -H "Authorization: Bearer $CF_TOKEN" | \
-  python3 -c "
-import json,sys
+  -H "Authorization: Bearer $CF_TOKEN")
+
+# Neue Config mit dashboard-Regel bauen
+NEW_CONFIG=$(echo "$CF_CONFIG_RESPONSE" | python3 -c "
+import json, sys
 data = json.load(sys.stdin)
 rules = data.get('result', {}).get('config', {}).get('ingress', [])
-# Catch-all entfernen (wird neu hinzugefuegt)
 rules = [r for r in rules if r.get('hostname')]
-print(json.dumps(rules))
-" 2>/dev/null)
+hostnames = [r.get('hostname') for r in rules]
+if 'dashboard.beautymolt.com' not in hostnames:
+    rules.append({'hostname': 'dashboard.beautymolt.com', 'service': 'http://forge-dashboard:3001'})
+rules.append({'service': 'http_status:404'})
+print(json.dumps({'config': {'ingress': rules}}))
+" 2>&1)
 
-# Neue Config: bestehende Regeln + dashboard + catch-all
-NEW_CONFIG=$(python3 -c "
-import json
-existing = json.loads('$EXISTING_INGRESS') if '$EXISTING_INGRESS' else []
-# dashboard Regel hinzufuegen falls nicht vorhanden
-ids = [r.get('hostname') for r in existing]
-if 'dashboard.beautymolt.com' not in ids:
-    existing.append({'hostname': 'dashboard.beautymolt.com', 'service': 'http://forge-dashboard:3001'})
-# Catch-all immer am Ende
-existing.append({'service': 'http_status:404'})
-print(json.dumps({'config': {'ingress': existing}}))
-")
+if [ $? -ne 0 ]; then
+  echo "  FEHLER beim Erstellen der neuen Config:"
+  echo "  $NEW_CONFIG"
+  exit 1
+fi
 
 # Tunnel Config updaten
 UPDATE_RESULT=$(curl -s -X PUT \
@@ -161,7 +169,7 @@ else
   exit 1
 fi
 
-# DNS CNAME erstellen (falls nicht vorhanden)
+# DNS CNAME erstellen falls nicht vorhanden
 DNS_CHECK=$(curl -s \
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?name=dashboard.beautymolt.com" \
   -H "Authorization: Bearer $CF_TOKEN")
