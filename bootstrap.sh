@@ -64,12 +64,13 @@ require_cmd() {
 # ----------------------------------------------------------------
 # 1. SYSTEM-ABHAENGIGKEITEN
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[1/9] Pruefe System-Abhaengigkeiten...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[1/10] Pruefe System-Abhaengigkeiten...${COLOR_NC}"
 
 require_cmd curl
 require_cmd git
 require_cmd python3
 require_cmd sqlite3
+require_cmd jq
 
 if ! command -v docker &> /dev/null; then
   echo -e "${COLOR_RED}docker fehlt. https://docs.docker.com/engine/install/${COLOR_NC}"
@@ -92,11 +93,10 @@ echo -e "${COLOR_GREEN}OK System-Abhaengigkeiten${COLOR_NC}"
 # ----------------------------------------------------------------
 # 2. UGLY-STACK UND OC PRUEFEN
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[2/9] Pruefe ugly-stack und OpenClaw...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[2/10] Pruefe ugly-stack und OpenClaw...${COLOR_NC}"
 
 if [ ! -d "$STACK_DIR" ]; then
   echo -e "${COLOR_RED}ugly-stack nicht gefunden unter $PARENT_DIR/${COLOR_NC}"
-  echo -e "${COLOR_RED}Loesung: cd ~ && git clone https://github.com/uglyatbeautymolt/ugly-forge.git && cd ugly-forge && bash bootstrap.sh${COLOR_NC}"
   exit 1
 fi
 
@@ -116,7 +116,7 @@ echo -e "${COLOR_GREEN}OK OpenClaw laeuft${COLOR_NC}"
 # ----------------------------------------------------------------
 # 3. GITHUB_TOKEN
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[3/9] Lese GITHUB_TOKEN...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[3/10] Lese GITHUB_TOKEN...${COLOR_NC}"
 
 REMOTE_URL=$(git -C "$STACK_DIR" remote get-url origin 2>/dev/null || echo "")
 GITHUB_TOKEN=$(echo "$REMOTE_URL" | sed 's|https://||' | cut -d'@' -f1)
@@ -141,7 +141,7 @@ echo -e "${COLOR_GREEN}OK GitHub Token gueltig -- User: $GITHUB_USERNAME${COLOR_
 # ----------------------------------------------------------------
 # 4. PROJEKT_GPG_KEY
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[4/9] Lese PROJEKT_GPG_KEY...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[4/10] Lese PROJEKT_GPG_KEY...${COLOR_NC}"
 
 STACK_ENV="$STACK_DIR/.env"
 if [ ! -f "$STACK_ENV" ]; then
@@ -166,7 +166,7 @@ fi
 # ----------------------------------------------------------------
 # 5. SKILLS
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[5/9] Installiere Skills...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[5/10] Installiere Skills...${COLOR_NC}"
 mkdir -p "$OC_SKILLS"
 
 SKILL_COUNT=0
@@ -185,7 +185,7 @@ echo -e "${COLOR_GREEN}OK $SKILL_COUNT Skills in: $OC_SKILLS${COLOR_NC}"
 # ----------------------------------------------------------------
 # 6. WORKSPACE
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[6/9] Installiere Workspace-Dateien...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[6/10] Installiere Workspace-Dateien...${COLOR_NC}"
 mkdir -p "$OC_WORKSPACE"
 
 cp "$FORGE_DIR/workspace/AGENTS.md" "$OC_WORKSPACE/AGENTS.md"
@@ -196,16 +196,8 @@ echo -e "${COLOR_GREEN}OK AGENTS.md installiert${COLOR_NC}"
 
 # ----------------------------------------------------------------
 # 7. OPENCLAW.JSON MERGEN
-#
-# forge.json Struktur (reines JSON):
-#   { "tools": { "loopDetection": {...} },   <-- Root-Level (OC 2026.4 Schema)
-#     "agents": { "defaults": {...}, "list": [...] } }
-#
-# Merge-Logik:
-#   - tools.loopDetection -> Root-Level der bestehenden openclaw.json
-#   - agents.list         -> bestehende agents.list ergaenzen
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[7/9] Konfiguriere openclaw.json...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[7/10] Konfiguriere openclaw.json...${COLOR_NC}"
 
 FORGE_JSON="$FORGE_DIR/workspace/openclaw-forge.json"
 
@@ -234,17 +226,14 @@ with open(config_path, 'r') as f:
 with open(forge_path, 'r') as f:
     forge = json.load(f)
 
-# tools.loopDetection auf Root-Level eintragen (OC 2026.4 Schema)
 if 'tools' not in existing:
     existing['tools'] = {}
 if 'loopDetection' not in existing['tools'] and 'tools' in forge:
     existing['tools']['loopDetection'] = forge['tools']['loopDetection']
 
-# agents-Struktur sicherstellen
 if 'agents' not in existing:
     existing['agents'] = {}
 
-# agents.list: forge-Agenten hinzufuegen (keine Duplikate nach id)
 forge_agents = forge.get('agents', {}).get('list', [])
 ex_list = existing['agents'].setdefault('list', [])
 ex_ids  = {a.get('id') for a in ex_list}
@@ -278,7 +267,7 @@ fi
 # ----------------------------------------------------------------
 # 8. SQLITE DB
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[8/9] Initialisiere SQLite Datenbank...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[8/10] Initialisiere SQLite Datenbank...${COLOR_NC}"
 
 FORGE_DB_DIR="$FORGE_DIR/db"
 mkdir -p "$FORGE_DB_DIR"
@@ -374,11 +363,77 @@ else
 fi
 
 # ----------------------------------------------------------------
-# 9. OPENCLAW NEU STARTEN
+# 9. CLOUDFLARE TUNNEL + NGINX
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[9/9] Starte OpenClaw neu...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[9/10] Cloudflare Tunnel + nginx fuer dashboard.beautymolt.com...${COLOR_NC}"
 
-docker compose -f "$STACK_DIR/docker-compose.yml" restart openclaw
+source "$STACK_ENV"
+
+NGINX_CONF="$STACK_DIR/nginx/conf.d/default.conf"
+DASHBOARD_BLOCK='server {
+    listen 80;
+    server_name dashboard.beautymolt.com;
+    location / {
+        proxy_pass http://forge-dashboard:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}'
+
+if grep -q "dashboard.beautymolt.com" "$NGINX_CONF" 2>/dev/null; then
+  echo -e "  v nginx: dashboard.beautymolt.com bereits vorhanden"
+else
+  echo "" >> "$NGINX_CONF"
+  echo "$DASHBOARD_BLOCK" >> "$NGINX_CONF"
+  echo -e "  + nginx: dashboard.beautymolt.com Block hinzugefuegt"
+fi
+
+if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
+  TUNNEL_CONFIG=$(curl -s \
+    "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
+    -H "Authorization: Bearer ${CF_TOKEN}")
+
+  if echo "$TUNNEL_CONFIG" | jq -e '.success' | grep -q true; then
+    if echo "$TUNNEL_CONFIG" | jq -e '.result.config.ingress[] | select(.hostname == "dashboard.beautymolt.com")' > /dev/null 2>&1; then
+      echo -e "  v Cloudflare Tunnel: dashboard.beautymolt.com bereits vorhanden"
+    else
+      NEW_INGRESS=$(echo "$TUNNEL_CONFIG" | jq '
+        .result.config.ingress = (
+          [.result.config.ingress[] | select(.hostname != null and .service != "http_status:404")] +
+          [{"hostname": "dashboard.beautymolt.com", "service": "http://nginx:80"}] +
+          [{"service": "http_status:404"}]
+        )
+        | {config: {ingress: .result.config.ingress, "warp-routing": .result.config["warp-routing"]}}
+      ')
+
+      PUT_RESULT=$(curl -s -X PUT \
+        "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
+        -H "Authorization: Bearer ${CF_TOKEN}" \
+        -H "Content-Type: application/json" \
+        --data "$NEW_INGRESS")
+
+      if echo "$PUT_RESULT" | jq -e '.success' | grep -q true; then
+        echo -e "  ${COLOR_GREEN}+ Cloudflare Tunnel: dashboard.beautymolt.com hinzugefuegt${COLOR_NC}"
+      else
+        echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Update fehlgeschlagen:${COLOR_NC}"
+        echo "$PUT_RESULT" | jq -r '.errors[0].message // "unbekannt"'
+      fi
+    fi
+  else
+    echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Config konnte nicht gelesen werden${COLOR_NC}"
+  fi
+else
+  echo -e "  ${COLOR_YELLOW}! CF_TOKEN/CF_ACCOUNT_ID/CF_TUNNEL_ID fehlen in .env -- Tunnel manuell konfigurieren${COLOR_NC}"
+fi
+
+# ----------------------------------------------------------------
+# 10. OPENCLAW NEU STARTEN
+# ----------------------------------------------------------------
+echo -e "${COLOR_YELLOW}[10/10] Starte OpenClaw + nginx neu...${COLOR_NC}"
+
+docker compose -f "$STACK_DIR/docker-compose.yml" restart openclaw nginx
 sleep 5
 
 unset GITHUB_TOKEN
@@ -392,6 +447,7 @@ echo ""
 echo -e "GitHub User:   $GITHUB_USERNAME"
 echo -e "Skills:        $(ls "$OC_SKILLS" 2>/dev/null | wc -l) installiert"
 echo -e "DB:            $FORGE_DB_DIR/projects.db"
+echo -e "Dashboard:     https://dashboard.beautymolt.com"
 echo ""
 
 if grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
@@ -402,8 +458,6 @@ fi
 
 echo ""
 echo -e "Naechste Schritte:"
-echo -e "  1. OC Config pruefen: docker compose -f $STACK_DIR/docker-compose.yml exec openclaw node dist/index.js config validate"
-echo -e "  2. Agenten listen:    docker compose -f $STACK_DIR/docker-compose.yml exec openclaw node dist/index.js agents list"
-echo -e "  3. Forge starten:     docker compose -f $STACK_DIR/docker-compose.yml exec -it openclaw node dist/index.js agent --agent forge-orchestrator --message 'Hallo'"
-echo -e "  4. Dashboard:         bash $FORGE_DIR/dashboard/build.sh"
+echo -e "  1. Agenten listen:  docker compose -f $STACK_DIR/docker-compose.yml exec openclaw node dist/index.js agents list"
+echo -e "  2. Dashboard:       https://dashboard.beautymolt.com"
 echo ""
