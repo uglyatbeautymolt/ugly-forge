@@ -4,9 +4,11 @@ const { WebSocketServer } = require('ws');
 const Database = require('better-sqlite3');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 
 const PORT = process.env.PORT || 3001;
 const DB_PATH = process.env.DB_PATH || '/home/node/forge-db/projects.db';
+const WWW_PATH = process.env.WWW_PATH || '/home/node/www';
 
 const app = express();
 app.use(cors());
@@ -70,26 +72,72 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, db: !!db, timestamp: new Date().toISOString() });
 });
 
-// Alle Projekte
+// ─── File Browser API ────────────────────────────────────────────
+
+// Sicherheitsfunktion — verhindert Path Traversal
+function safePath(requestedPath) {
+  const base = path.resolve(WWW_PATH);
+  const full = path.resolve(WWW_PATH, requestedPath || '');
+  if (!full.startsWith(base)) return null;
+  return full;
+}
+
+// Verzeichnis-Listing oder Dateiinhalt
+app.get('/api/files', (req, res) => {
+  const reqPath = req.query.path || '';
+  const fullPath = safePath(reqPath);
+
+  if (!fullPath) return res.status(403).json({ error: 'Ungültiger Pfad' });
+
+  try {
+    const stat = fs.statSync(fullPath);
+
+    if (stat.isDirectory()) {
+      const entries = fs.readdirSync(fullPath, { withFileTypes: true })
+        .sort((a, b) => {
+          // Ordner zuerst, dann alphabetisch
+          if (a.isDirectory() && !b.isDirectory()) return -1;
+          if (!a.isDirectory() && b.isDirectory()) return 1;
+          return a.name.localeCompare(b.name);
+        })
+        .map(e => ({
+          name: e.name,
+          type: e.isDirectory() ? 'dir' : 'file',
+          path: reqPath ? `${reqPath}/${e.name}` : e.name
+        }));
+      return res.json(entries);
+    }
+
+    // Datei — Text lesen (max 500KB)
+    if (stat.size > 512 * 1024) {
+      return res.json({ content: `(Datei zu groß zum Anzeigen: ${Math.round(stat.size / 1024)}KB)`, name: path.basename(fullPath) });
+    }
+    const content = fs.readFileSync(fullPath, 'utf8');
+    return res.json({ content, name: path.basename(fullPath) });
+
+  } catch (e) {
+    if (e.code === 'ENOENT') return res.json([]); // Leeres www-Verzeichnis
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Alle Projekte ───────────────────────────────────────────────
 app.get('/api/projects', (req, res) => {
   const projects = query('SELECT * FROM projects ORDER BY created_at DESC');
   res.json(projects);
 });
 
-// Ein Projekt
 app.get('/api/projects/:id', (req, res) => {
   const project = queryOne('SELECT * FROM projects WHERE id = ?', [req.params.id]);
   if (!project) return res.status(404).json({ error: 'Nicht gefunden' });
   res.json(project);
 });
 
-// Tasks eines Projekts
 app.get('/api/projects/:id/tasks', (req, res) => {
   const tasks = query('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC', [req.params.id]);
   res.json(tasks);
 });
 
-// Alle Tasks (für Scrum Board)
 app.get('/api/tasks', (req, res) => {
   const tasks = query(`
     SELECT t.*, p.name as project_name 
@@ -100,54 +148,34 @@ app.get('/api/tasks', (req, res) => {
   res.json(tasks);
 });
 
-// Kommunikations-Log
 app.get('/api/communications', (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
-  const comms = query(
-    'SELECT * FROM communications ORDER BY created_at DESC LIMIT ?',
-    [limit]
-  );
+  const comms = query('SELECT * FROM communications ORDER BY created_at DESC LIMIT ?', [limit]);
   res.json(comms);
 });
 
-// Letzte Kommunikation für Live-Monitor
 app.get('/api/communications/recent', (req, res) => {
   const since = req.query.since || new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  const comms = query(
-    'SELECT * FROM communications WHERE created_at > ? ORDER BY created_at DESC LIMIT 100',
-    [since]
-  );
+  const comms = query('SELECT * FROM communications WHERE created_at > ? ORDER BY created_at DESC LIMIT 100', [since]);
   res.json(comms);
 });
 
-// Model Performance
 app.get('/api/performance', (req, res) => {
   const projectId = req.query.project_id;
-  let rows;
-  if (projectId) {
-    rows = query(
-      'SELECT * FROM model_performance WHERE project_id = ? ORDER BY created_at DESC',
-      [projectId]
-    );
-  } else {
-    rows = query('SELECT * FROM model_performance ORDER BY created_at DESC LIMIT 200');
-  }
+  const rows = projectId
+    ? query('SELECT * FROM model_performance WHERE project_id = ? ORDER BY created_at DESC', [projectId])
+    : query('SELECT * FROM model_performance ORDER BY created_at DESC LIMIT 200');
   res.json(rows);
 });
 
-// Agenten-Learnings (für Team-Ansicht)
 app.get('/api/learnings', (req, res) => {
   const agent = req.query.agent;
-  let rows;
-  if (agent) {
-    rows = query('SELECT * FROM agent_learnings WHERE agent = ? ORDER BY created_at DESC', [agent]);
-  } else {
-    rows = query('SELECT * FROM agent_learnings ORDER BY created_at DESC');
-  }
+  const rows = agent
+    ? query('SELECT * FROM agent_learnings WHERE agent = ? ORDER BY created_at DESC', [agent])
+    : query('SELECT * FROM agent_learnings ORDER BY created_at DESC');
   res.json(rows);
 });
 
-// Live-Status aller Agenten (aggregiert aus letzten 10 Min)
 app.get('/api/agents/status', (req, res) => {
   const agents = [
     'forge-orchestrator', 'forge-requirements', 'forge-review',
@@ -155,9 +183,7 @@ app.get('/api/agents/status', (req, res) => {
     'forge-backend', 'forge-frontend', 'forge-qa',
     'forge-devops', 'forge-retro', 'forge-model-scout'
   ];
-
   const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-
   const status = agents.map(agentId => {
     const recentComm = queryOne(
       'SELECT * FROM communications WHERE (from_agent = ? OR to_agent = ?) AND created_at > ? ORDER BY created_at DESC LIMIT 1',
@@ -171,7 +197,6 @@ app.get('/api/agents/status', (req, res) => {
       'SELECT SUM(tokens_input + tokens_output) as tokens, SUM(cost) as cost FROM model_performance WHERE agent = ?',
       [agentId]
     );
-
     return {
       id: agentId,
       active: !!recentComm || !!activeTask,
@@ -181,17 +206,14 @@ app.get('/api/agents/status', (req, res) => {
       totalCost: perf?.cost || 0
     };
   });
-
   res.json(status);
 });
 
-// Statistiken für Dashboard-Header
 app.get('/api/stats', (req, res) => {
   const projects = queryOne('SELECT COUNT(*) as count FROM projects') || { count: 0 };
   const active = queryOne("SELECT COUNT(*) as count FROM projects WHERE status NOT IN ('completed', 'planning')") || { count: 0 };
   const cost = queryOne('SELECT SUM(cost) as total FROM model_performance') || { total: 0 };
-  const tasks = queryOne('SELECT COUNT(*) as total, SUM(CASE WHEN status = \'done\' THEN 1 ELSE 0 END) as done FROM tasks') || { total: 0, done: 0 };
-
+  const tasks = queryOne("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done FROM tasks") || { total: 0, done: 0 };
   res.json({
     totalProjects: projects.count,
     activeProjects: active.count,
@@ -201,32 +223,22 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
-// ─── SPA Fallback — alle nicht-API Routen ans Frontend ──────────
+// SPA Fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
-// ─── HTTP + WebSocket Server ─────────────────────────────────────
+// ─── HTTP + WebSocket ────────────────────────────────────────────
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
-
 const clients = new Set();
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', (ws) => {
   clients.add(ws);
   console.log(`WS Client verbunden. Gesamt: ${clients.size}`);
-
   sendSnapshot(ws);
-
-  ws.on('close', () => {
-    clients.delete(ws);
-    console.log(`WS Client getrennt. Gesamt: ${clients.size}`);
-  });
-
-  ws.on('error', (err) => {
-    console.error('WS Fehler:', err.message);
-    clients.delete(ws);
-  });
+  ws.on('close', () => { clients.delete(ws); });
+  ws.on('error', (err) => { console.error('WS Fehler:', err.message); clients.delete(ws); });
 });
 
 function sendSnapshot(ws) {
@@ -250,7 +262,7 @@ function sendSnapshot(ws) {
 function getStats() {
   const projects = queryOne('SELECT COUNT(*) as count FROM projects') || { count: 0 };
   const cost = queryOne('SELECT SUM(cost) as total FROM model_performance') || { total: 0 };
-  const tasks = queryOne('SELECT COUNT(*) as total, SUM(CASE WHEN status = \'done\' THEN 1 ELSE 0 END) as done FROM tasks') || { total: 0, done: 0 };
+  const tasks = queryOne("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done FROM tasks") || { total: 0, done: 0 };
   return {
     totalProjects: projects.count,
     totalCost: Math.round((cost.total || 0) * 100) / 100,
@@ -266,7 +278,6 @@ function broadcast(type, data) {
   }
 }
 
-// Alle 3 Sekunden DB pollen und Änderungen pushen
 let lastTaskUpdate = '';
 let lastCommUpdate = '';
 
@@ -275,14 +286,11 @@ setInterval(() => {
   try {
     const latestTask = queryOne('SELECT updated_at FROM tasks ORDER BY updated_at DESC LIMIT 1');
     const latestComm = queryOne('SELECT created_at FROM communications ORDER BY created_at DESC LIMIT 1');
-
     const taskTs = latestTask?.updated_at || '';
     const commTs = latestComm?.created_at || '';
-
     if (taskTs !== lastTaskUpdate || commTs !== lastCommUpdate) {
       lastTaskUpdate = taskTs;
       lastCommUpdate = commTs;
-
       if (clients.size > 0) {
         broadcast('update', {
           tasks: query('SELECT t.*, p.name as project_name FROM tasks t LEFT JOIN projects p ON t.project_id = p.id ORDER BY t.updated_at DESC'),
@@ -291,13 +299,12 @@ setInterval(() => {
         });
       }
     }
-  } catch (e) {
-    // DB möglicherweise gerade gesperrt
-  }
+  } catch (e) { /* DB möglicherweise gerade gesperrt */ }
 }, 3000);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`ugly-forge Dashboard Backend läuft auf Port ${PORT}`);
   console.log(`REST: http://localhost:${PORT}/api/health`);
   console.log(`WS:   ws://localhost:${PORT}`);
+  console.log(`WWW:  ${WWW_PATH}`);
 });

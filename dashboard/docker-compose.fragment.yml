@@ -1,6 +1,6 @@
 # Docker Compose Ergänzung für ugly-stack
 # Dieser Block in ugly-stack/docker-compose.yml unter 'services:' einfügen
-
+#
 # WICHTIG: Der bootstrap.sh macht das automatisch wenn du ihn neu läufst.
 # Oder manuell:
 #
@@ -17,9 +17,11 @@
 #       - "3001:3001"
 #     volumes:
 #       - ../ugly-forge/db:/home/node/forge-db
+#       - ./www:/home/node/www          # Generierte Projektdateien (read-only)
 #     environment:
 #       - PORT=3001
 #       - DB_PATH=/home/node/forge-db/projects.db
+#       - WWW_PATH=/home/node/www
 #     networks:
 #       - ugly-net
 #

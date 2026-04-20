@@ -6,6 +6,7 @@ import TeamView from './views/TeamView.jsx';
 import ProjectsView from './views/ProjectsView.jsx';
 import LiveMonitor from './views/LiveMonitor.jsx';
 import ScrumBoard from './views/ScrumBoard.jsx';
+import FileBrowser from './views/FileBrowser.jsx';
 
 export default function App() {
   const [view, setView] = useState('live');
@@ -16,10 +17,11 @@ export default function App() {
       <Header connected={connected} lastUpdate={lastUpdate} stats={data.stats} />
       <Nav active={view} onChange={setView} />
       <main style={{ flex: 1, overflow: 'auto', padding: '1.5rem' }}>
-        {view === 'live' && <LiveMonitor agents={data.agents} communications={data.communications} tasks={data.tasks} />}
-        {view === 'scrum' && <ScrumBoard tasks={data.tasks} projects={data.projects} />}
+        {view === 'live'     && <LiveMonitor agents={data.agents} communications={data.communications} tasks={data.tasks} />}
+        {view === 'scrum'    && <ScrumBoard tasks={data.tasks} projects={data.projects} />}
         {view === 'projects' && <ProjectsView projects={data.projects} tasks={data.tasks} />}
-        {view === 'team' && <TeamView agents={data.agents} />}
+        {view === 'team'     && <TeamView agents={data.agents} />}
+        {view === 'files'    && <FileBrowser />}
       </main>
     </div>
   );
