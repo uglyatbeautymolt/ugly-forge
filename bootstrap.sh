@@ -121,7 +121,7 @@ echo -e "${COLOR_YELLOW}[3/10] Lese GITHUB_TOKEN...${COLOR_NC}"
 REMOTE_URL=$(git -C "$STACK_DIR" remote get-url origin 2>/dev/null || echo "")
 GITHUB_TOKEN=$(echo "$REMOTE_URL" | sed 's|https://||' | cut -d'@' -f1)
 
-if [ -z "$GITHUB_TOKEN" ] || [ "$GITHUB_TOKEN" = "$REMOTE_URL" ]; then
+if [ -z "$GITHUB_TOKEN" ] || [ "$REMOTE_URL" = "$GITHUB_TOKEN" ]; then
   echo -e "${COLOR_RED}Kein Token in Git Remote URL. Erwartet: https://<TOKEN>@github.com/...${COLOR_NC}"
   exit 1
 fi
@@ -356,44 +356,65 @@ echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 CORRECT_MOUNT="      - ${FORGE_DB_DIR}:/home/node/forge-db"
 
-# Schritt A: :ro korrigieren falls vorhanden
-if grep -qF "forge-db:ro" "$STACK_COMPOSE" 2>/dev/null; then
-  echo -e "  ! forge-db Mount ist :ro -- korrigiere zu rw..."
+# Pruefe ob Mount korrekt im openclaw-Block sitzt (nicht in anderem Service)
+OC_HAS_MOUNT=$(awk '
+  /^  openclaw:/ { in_oc=1 }
+  in_oc && /^  [a-z]/ && !/^  openclaw:/ { in_oc=0 }
+  in_oc && /forge-db/ { found=1 }
+  END { print found+0 }
+' "$STACK_COMPOSE")
+
+# Entferne fehlplatzierten Mount aus anderen Services (z.B. forge-dashboard)
+if grep -qF "forge-db" "$STACK_COMPOSE" && [ "$OC_HAS_MOUNT" = "0" ]; then
+  echo -e "  ! forge-db Mount ist im falschen Service -- entferne und setze neu..."
   TMPFILE="$(mktemp)"
-  awk -v path="$FORGE_DB_DIR" '
-    {
-      if (index($0, "forge-db:ro") > 0) {
-        sub(/:ro/, "", $0)
-      }
-      print
-    }
-  ' "$STACK_COMPOSE" > "$TMPFILE" && mv "$TMPFILE" "$STACK_COMPOSE"
-  echo -e "  + :ro entfernt"
+  grep -vF "forge-db" "$STACK_COMPOSE" > "$TMPFILE" && mv "$TMPFILE" "$STACK_COMPOSE"
+  echo -e "  + Fehlplatzierter Mount entfernt"
 fi
 
-# Schritt B: Mount einfuegen falls noch nicht vorhanden
-if grep -qF "forge-db" "$STACK_COMPOSE" 2>/dev/null; then
-  echo -e "  v DB Volume Mount vorhanden (rw)"
-else
-  echo -e "  + Fuege DB Volume Mount ein..."
+# Schritt A: :ro korrigieren falls vorhanden im openclaw-Block
+if [ "$OC_HAS_MOUNT" = "1" ] && grep -qF "forge-db:ro" "$STACK_COMPOSE"; then
+  echo -e "  ! forge-db Mount ist :ro -- korrigiere..."
   TMPFILE="$(mktemp)"
+  awk '{ gsub(/forge-db:ro/, "forge-db"); print }' "$STACK_COMPOSE" > "$TMPFILE" && mv "$TMPFILE" "$STACK_COMPOSE"
+  echo -e "  + :ro entfernt"
+  OC_HAS_MOUNT="1"
+fi
+
+# Schritt B: Mount einfuegen falls nicht im openclaw-Block
+if [ "$OC_HAS_MOUNT" = "1" ]; then
+  echo -e "  v DB Volume Mount korrekt im openclaw-Block vorhanden"
+else
+  echo -e "  + Fuege DB Volume Mount in openclaw-Block ein..."
+  TMPFILE="$(mktemp)"
+  # awk: nur im openclaw-Block nach /home/node/www suchen
   awk -v mount="$CORRECT_MOUNT" '
+    /^  openclaw:/ { in_oc=1 }
+    in_oc && /^  [a-z]/ && !/^  openclaw:/ { in_oc=0 }
     {
       print
-      if (!inserted && index($0, "/home/node/www") > 0) {
+      if (in_oc && !inserted && index($0, "/home/node/www") > 0) {
         print mount
         inserted = 1
       }
     }
   ' "$STACK_COMPOSE" > "$TMPFILE"
 
-  if grep -qF "forge-db" "$TMPFILE"; then
+  # Verifikation
+  VERIFY=$(awk '
+    /^  openclaw:/ { in_oc=1 }
+    in_oc && /^  [a-z]/ && !/^  openclaw:/ { in_oc=0 }
+    in_oc && /forge-db/ { found=1 }
+    END { print found+0 }
+  ' "$TMPFILE")
+
+  if [ "$VERIFY" = "1" ]; then
     mv "$TMPFILE" "$STACK_COMPOSE"
-    echo -e "  + DB Volume Mount eingefuegt"
+    echo -e "  + DB Volume Mount korrekt in openclaw-Block eingefuegt"
   else
     rm -f "$TMPFILE"
-    echo -e "${COLOR_RED}Patch fehlgeschlagen -- /home/node/www nicht gefunden${COLOR_NC}"
-    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes:${COLOR_NC}"
+    echo -e "${COLOR_RED}Patch fehlgeschlagen -- Mount nicht im openclaw-Block${COLOR_NC}"
+    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw > volumes in $STACK_COMPOSE:${COLOR_NC}"
     echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
   fi
 fi
@@ -493,12 +514,12 @@ else
   echo -e "${COLOR_RED}openclaw.json: FEHLER -- bootstrap.sh erneut ausfuehren${COLOR_NC}"
 fi
 
-# DB Mount Verifikation
+# DB Mount Verifikation direkt in docker inspect
 if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
   echo -e "${COLOR_GREEN}DB Mount:      OK /home/node/forge-db gemountet${COLOR_NC}"
 else
-  echo -e "${COLOR_RED}DB Mount:      FEHLER -- forge-db nicht gemountet${COLOR_NC}"
-  echo -e "${COLOR_YELLOW}               Pruefen: grep forge-db $STACK_DIR/docker-compose.yml${COLOR_NC}"
+  echo -e "${COLOR_RED}DB Mount:      FEHLER -- forge-db nicht im openclaw Container${COLOR_NC}"
+  echo -e "${COLOR_YELLOW}               Pruefen: grep -A2 -B2 forge-db $STACK_DIR/docker-compose.yml${COLOR_NC}"
 fi
 
 echo ""
