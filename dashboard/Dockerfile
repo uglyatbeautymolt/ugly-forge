@@ -9,11 +9,8 @@ RUN cd server && npm install --production
 # Server-Code kopieren
 COPY server/ ./server/
 
-# React Build kopieren (wird beim Docker Build eingebunden)
+# React Build kopieren
 COPY client/dist/ ./client/dist/
-
-# Static Files vom React Build servieren
-RUN sed -i 's|// STATIC_FILES_PLACEHOLDER|app.use(express.static("/app/client/dist"));|' server/index.js 2>/dev/null || true
 
 EXPOSE 3001
 
