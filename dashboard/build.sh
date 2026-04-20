@@ -22,11 +22,6 @@ set +e
 export $(grep -v '^#' "$STACK_ENV" | grep -v '^$' | xargs 2>/dev/null)
 set -e
 
-if [ -z "$CF_TOKEN" ] || [ -z "$CF_ZONE_ID" ]; then
-  echo "FEHLER: CF_TOKEN oder CF_ZONE_ID fehlt in .env"
-  exit 1
-fi
-
 echo "Baue ugly-forge Dashboard..."
 
 # 1. npm install + React Build
@@ -95,93 +90,34 @@ echo "Starte forge-dashboard..."
 docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
 sleep 3
 
-# 6. Cloudflare Tunnel konfigurieren
-set +e
+# 6. Cloudflare Tunnel Route setzen via cloudflared im Container
 echo ""
-echo "Konfiguriere Cloudflare Tunnel..."
+echo "Konfiguriere Cloudflare Tunnel Route..."
 
-# Account ID und Tunnel ID aus CLOUDFLARE_TUNNEL_TOKEN (JWT) extrahieren
-if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
-  PAYLOAD=$(echo "$CLOUDFLARE_TUNNEL_TOKEN" | cut -d'.' -f2)
-  PADDED=$(echo "$PAYLOAD" | sed 's/-/+/g; s/_/\//g')
-  while [ $((${#PADDED} % 4)) -ne 0 ]; do PADDED="${PADDED}="; done
-  DECODED=$(echo "$PADDED" | base64 -d 2>/dev/null)
-  ACCOUNT_ID=$(echo "$DECODED" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('a',''))" 2>/dev/null)
-  TUNNEL_ID=$(echo "$DECODED" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('t',''))" 2>/dev/null)
-fi
+# Tunnel ID aus CLOUDFLARE_TUNNEL_TOKEN (JWT Payload) extrahieren
+PAYLOAD=$(echo "$CLOUDFLARE_TUNNEL_TOKEN" | cut -d'.' -f2)
+PADDED=$(echo "$PAYLOAD" | sed 's/-/+/g; s/_/\//g')
+while [ $((${#PADDED} % 4)) -ne 0 ]; do PADDED="${PADDED}="; done
+DECODED=$(echo "$PADDED" | base64 -d 2>/dev/null)
+TUNNEL_ID=$(echo "$DECODED" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('t',''))" 2>/dev/null)
 
-if [ -z "$ACCOUNT_ID" ] || [ -z "$TUNNEL_ID" ]; then
-  echo "  FEHLER: Konnte Account ID / Tunnel ID nicht aus CLOUDFLARE_TUNNEL_TOKEN lesen"
+if [ -z "$TUNNEL_ID" ]; then
+  echo "  FEHLER: Tunnel ID konnte nicht aus CLOUDFLARE_TUNNEL_TOKEN gelesen werden"
   exit 1
 fi
-echo "  Account ID: $ACCOUNT_ID"
-echo "  Tunnel ID:  $TUNNEL_ID"
+echo "  Tunnel ID: $TUNNEL_ID"
 
-# Bestehende Ingress-Regeln holen + neue Config bauen
-CF_CONFIG=$(curl -s \
-  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/configurations" \
-  -H "Authorization: Bearer $CF_TOKEN")
+# DNS Route via cloudflared setzen (nutzt den laufenden Tunnel-Token)
+ROUTE_RESULT=$(docker exec cloudflared cloudflared tunnel route dns \
+  --overwrite-dns "$TUNNEL_ID" dashboard.beautymolt.com 2>&1)
 
-NEW_CONFIG=$(echo "$CF_CONFIG" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-# 'result' kann None sein wenn Tunnel noch keine Config hat
-result = data.get('result') or {}
-config = result.get('config') or {}
-rules = config.get('ingress') or []
-# Nur Regeln mit hostname behalten (catch-all entfernen)
-rules = [r for r in rules if r.get('hostname')]
-hostnames = [r.get('hostname') for r in rules]
-if 'dashboard.beautymolt.com' not in hostnames:
-    rules.append({'hostname': 'dashboard.beautymolt.com', 'service': 'http://forge-dashboard:3001'})
-# Catch-all immer am Ende
-rules.append({'service': 'http_status:404'})
-print(json.dumps({'config': {'ingress': rules}}))
-" 2>&1)
-
-if [ $? -ne 0 ]; then
-  echo "  FEHLER beim Erstellen der Config: $NEW_CONFIG"
-  echo "  CF API Antwort: $CF_CONFIG"
+if echo "$ROUTE_RESULT" | grep -qi "error\|failed\|ERR"; then
+  echo "  FEHLER beim Setzen der Route: $ROUTE_RESULT"
   exit 1
 fi
 
-# Tunnel Config updaten
-UPDATE=$(curl -s -X PUT \
-  "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/configurations" \
-  -H "Authorization: Bearer $CF_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$NEW_CONFIG")
-
-if echo "$UPDATE" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('success') else 1)" 2>/dev/null; then
-  echo "  + Tunnel Ingress-Regel hinzugefuegt"
-else
-  echo "  FEHLER beim Tunnel Update: $UPDATE"
-  exit 1
-fi
-
-# DNS CNAME erstellen falls nicht vorhanden
-DNS_CHECK=$(curl -s \
-  "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?name=dashboard.beautymolt.com" \
-  -H "Authorization: Bearer $CF_TOKEN")
-
-DNS_COUNT=$(echo "$DNS_CHECK" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('result') or []))" 2>/dev/null)
-
-if [ "$DNS_COUNT" = "0" ]; then
-  DNS=$(curl -s -X POST \
-    "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
-    -H "Authorization: Bearer $CF_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"type\":\"CNAME\",\"proxied\":true,\"name\":\"dashboard.beautymolt.com\",\"content\":\"$TUNNEL_ID.cfargotunnel.com\"}")
-
-  if echo "$DNS" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('success') else 1)" 2>/dev/null; then
-    echo "  + DNS CNAME: dashboard.beautymolt.com -> $TUNNEL_ID.cfargotunnel.com"
-  else
-    echo "  FEHLER DNS: $DNS"
-    exit 1
-  fi
-else
-  echo "  v DNS CNAME bereits vorhanden"
-fi
+echo "  + Route gesetzt: dashboard.beautymolt.com -> Tunnel $TUNNEL_ID"
+echo "  $ROUTE_RESULT"
 
 echo ""
 echo "Dashboard laeuft!"
