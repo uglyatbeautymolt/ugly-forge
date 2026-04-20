@@ -353,18 +353,31 @@ SQL
 
 echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
-# Volume Mount via awk einfuegen.
-# awk -v uebergibt Variablen sicher -- keine Slash-Probleme wie bei sed.
-# Strategie: Zeile mit /home/node/www finden, danach neue Mount-Zeile einfuegen.
-# Idempotent: grep prueft vorher ob forge-db bereits vorhanden.
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
-if grep -qF "forge-db" "$STACK_COMPOSE" 2>/dev/null; then
-  echo -e "  v DB Volume Mount bereits vorhanden"
-else
-  DB_MOUNT="      - ${FORGE_DB_DIR}:/home/node/forge-db"
-  TMPFILE="$(mktemp)"
+CORRECT_MOUNT="      - ${FORGE_DB_DIR}:/home/node/forge-db"
 
-  awk -v mount="$DB_MOUNT" '
+# Schritt A: :ro korrigieren falls vorhanden
+if grep -qF "forge-db:ro" "$STACK_COMPOSE" 2>/dev/null; then
+  echo -e "  ! forge-db Mount ist :ro -- korrigiere zu rw..."
+  TMPFILE="$(mktemp)"
+  awk -v path="$FORGE_DB_DIR" '
+    {
+      if (index($0, "forge-db:ro") > 0) {
+        sub(/:ro/, "", $0)
+      }
+      print
+    }
+  ' "$STACK_COMPOSE" > "$TMPFILE" && mv "$TMPFILE" "$STACK_COMPOSE"
+  echo -e "  + :ro entfernt"
+fi
+
+# Schritt B: Mount einfuegen falls noch nicht vorhanden
+if grep -qF "forge-db" "$STACK_COMPOSE" 2>/dev/null; then
+  echo -e "  v DB Volume Mount vorhanden (rw)"
+else
+  echo -e "  + Fuege DB Volume Mount ein..."
+  TMPFILE="$(mktemp)"
+  awk -v mount="$CORRECT_MOUNT" '
     {
       print
       if (!inserted && index($0, "/home/node/www") > 0) {
@@ -374,14 +387,13 @@ else
     }
   ' "$STACK_COMPOSE" > "$TMPFILE"
 
-  # Pruefen ob der Mount im Output ist
   if grep -qF "forge-db" "$TMPFILE"; then
     mv "$TMPFILE" "$STACK_COMPOSE"
     echo -e "  + DB Volume Mount eingefuegt"
   else
     rm -f "$TMPFILE"
-    echo -e "${COLOR_RED}awk-Patch fehlgeschlagen -- /home/node/www nicht gefunden${COLOR_NC}"
-    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes in $STACK_COMPOSE:${COLOR_NC}"
+    echo -e "${COLOR_RED}Patch fehlgeschlagen -- /home/node/www nicht gefunden${COLOR_NC}"
+    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw volumes:${COLOR_NC}"
     echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
   fi
 fi
