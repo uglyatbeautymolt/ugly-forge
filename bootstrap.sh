@@ -356,67 +356,118 @@ echo -e "${COLOR_GREEN}OK SQLite DB: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 CORRECT_MOUNT="      - ${FORGE_DB_DIR}:/home/node/forge-db"
 
-# Pruefe ob Mount korrekt im openclaw-Block sitzt (nicht in anderem Service)
-OC_HAS_MOUNT=$(awk '
-  /^  openclaw:/ { in_oc=1 }
-  in_oc && /^  [a-z]/ && !/^  openclaw:/ { in_oc=0 }
-  in_oc && /forge-db/ { found=1 }
-  END { print found+0 }
-' "$STACK_COMPOSE")
+# Alles via Python -- sauber, kein Slash-Problem, kein leeres volumes:-Problem
+PATCH_SCRIPT="/tmp/oc_db_mount_$$.py"
+cat > "$PATCH_SCRIPT" << PYEOF
+import sys, re
 
-# Entferne fehlplatzierten Mount aus anderen Services (z.B. forge-dashboard)
-if grep -qF "forge-db" "$STACK_COMPOSE" && [ "$OC_HAS_MOUNT" = "0" ]; then
-  echo -e "  ! forge-db Mount ist im falschen Service -- entferne und setze neu..."
-  TMPFILE="$(mktemp)"
-  grep -vF "forge-db" "$STACK_COMPOSE" > "$TMPFILE" && mv "$TMPFILE" "$STACK_COMPOSE"
-  echo -e "  + Fehlplatzierter Mount entfernt"
-fi
+compose_path = sys.argv[1]
+db_path = sys.argv[2]
+correct_mount = "      - " + db_path + ":/home/node/forge-db"
 
-# Schritt A: :ro korrigieren falls vorhanden im openclaw-Block
-if [ "$OC_HAS_MOUNT" = "1" ] && grep -qF "forge-db:ro" "$STACK_COMPOSE"; then
-  echo -e "  ! forge-db Mount ist :ro -- korrigiere..."
-  TMPFILE="$(mktemp)"
-  awk '{ gsub(/forge-db:ro/, "forge-db"); print }' "$STACK_COMPOSE" > "$TMPFILE" && mv "$TMPFILE" "$STACK_COMPOSE"
-  echo -e "  + :ro entfernt"
-  OC_HAS_MOUNT="1"
-fi
+with open(compose_path, 'r') as f:
+    lines = f.readlines()
 
-# Schritt B: Mount einfuegen falls nicht im openclaw-Block
-if [ "$OC_HAS_MOUNT" = "1" ]; then
-  echo -e "  v DB Volume Mount korrekt im openclaw-Block vorhanden"
+# Schritt 1: Analysiere welcher Service forge-db hat und ob openclaw es hat
+in_service = None
+service_indent = 2
+oc_has_mount = False
+bad_service_has_mount = False
+
+for line in lines:
+    stripped = line.rstrip()
+    lstripped = stripped.lstrip()
+    indent = len(stripped) - len(lstripped)
+    # Top-level service: 2 spaces, endet mit ':', kein '-'
+    if indent == service_indent and lstripped.endswith(':') and not lstripped.startswith('-'):
+        in_service = lstripped[:-1]
+    if 'forge-db' in stripped and '/home/node/forge-db' in stripped:
+        if in_service == 'openclaw':
+            oc_has_mount = True
+        else:
+            bad_service_has_mount = True
+
+# Schritt 2: Bereinige und setze korrekt
+new_lines = []
+in_service = None
+inserted = False
+
+i = 0
+while i < len(lines):
+    line = lines[i]
+    stripped = line.rstrip()
+    lstripped = stripped.lstrip()
+    indent = len(stripped) - len(lstripped)
+
+    # Service erkennen
+    if indent == service_indent and lstripped.endswith(':') and not lstripped.startswith('-'):
+        in_service = lstripped[:-1]
+
+    # Fehlplatzierten Mount entfernen (nur Mount-Zeile, nicht env-Zeilen)
+    if bad_service_has_mount and in_service != 'openclaw':
+        if 'forge-db' in stripped and '/home/node/forge-db' in stripped and stripped.lstrip().startswith('-'):
+            i += 1
+            continue
+        # Leeres volumes: entfernen das durch Mount-Entfernung entstanden ist
+        if stripped.strip() == 'volumes:' and indent > 0:
+            # Schau ob naechste nicht-leere Zeile kein Mount ist
+            j = i + 1
+            while j < len(lines) and lines[j].strip() == '':
+                j += 1
+            if j < len(lines) and not lines[j].lstrip().startswith('-'):
+                i += 1
+                continue
+
+    # :ro korrigieren im openclaw-Block
+    if in_service == 'openclaw' and 'forge-db:ro' in stripped:
+        line = line.replace('forge-db:ro', 'forge-db')
+
+    new_lines.append(line)
+
+    # Mount nach /home/node/www im openclaw-Block einfuegen
+    if in_service == 'openclaw' and not oc_has_mount and not inserted:
+        if '/home/node/www' in stripped:
+            new_lines.append(correct_mount + '\n')
+            inserted = True
+
+    i += 1
+
+with open(compose_path, 'w') as f:
+    f.writelines(new_lines)
+
+# Finale Verifikation
+with open(compose_path, 'r') as f:
+    content = f.read()
+
+in_oc = False
+oc_verified = False
+for line in content.splitlines():
+    stripped = line.strip()
+    indent = len(line.rstrip()) - len(stripped)
+    if indent == 2 and stripped == 'openclaw:':
+        in_oc = True
+    elif indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
+        in_oc = False
+    if in_oc and 'forge-db' in line and '/home/node/forge-db' in line:
+        oc_verified = True
+
+if oc_verified:
+    print("OK")
+else:
+    print("FEHLER: Mount nicht im openclaw-Block")
+    sys.exit(1)
+PYEOF
+
+PATCH_RESULT=$(python3 "$PATCH_SCRIPT" "$STACK_COMPOSE" "$FORGE_DB_DIR")
+PATCH_EXIT=$?
+rm -f "$PATCH_SCRIPT"
+
+if [ $PATCH_EXIT -eq 0 ]; then
+  echo -e "  + DB Volume Mount korrekt im openclaw-Block: OK"
 else
-  echo -e "  + Fuege DB Volume Mount in openclaw-Block ein..."
-  TMPFILE="$(mktemp)"
-  # awk: nur im openclaw-Block nach /home/node/www suchen
-  awk -v mount="$CORRECT_MOUNT" '
-    /^  openclaw:/ { in_oc=1 }
-    in_oc && /^  [a-z]/ && !/^  openclaw:/ { in_oc=0 }
-    {
-      print
-      if (in_oc && !inserted && index($0, "/home/node/www") > 0) {
-        print mount
-        inserted = 1
-      }
-    }
-  ' "$STACK_COMPOSE" > "$TMPFILE"
-
-  # Verifikation
-  VERIFY=$(awk '
-    /^  openclaw:/ { in_oc=1 }
-    in_oc && /^  [a-z]/ && !/^  openclaw:/ { in_oc=0 }
-    in_oc && /forge-db/ { found=1 }
-    END { print found+0 }
-  ' "$TMPFILE")
-
-  if [ "$VERIFY" = "1" ]; then
-    mv "$TMPFILE" "$STACK_COMPOSE"
-    echo -e "  + DB Volume Mount korrekt in openclaw-Block eingefuegt"
-  else
-    rm -f "$TMPFILE"
-    echo -e "${COLOR_RED}Patch fehlgeschlagen -- Mount nicht im openclaw-Block${COLOR_NC}"
-    echo -e "${COLOR_YELLOW}Manuell einfuegen unter openclaw > volumes in $STACK_COMPOSE:${COLOR_NC}"
-    echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
-  fi
+  echo -e "${COLOR_RED}  Patch fehlgeschlagen: $PATCH_RESULT${COLOR_NC}"
+  echo -e "${COLOR_YELLOW}  Manuell einfuegen unter openclaw > volumes:${COLOR_NC}"
+  echo -e "      - $FORGE_DB_DIR:/home/node/forge-db"
 fi
 
 # ----------------------------------------------------------------
@@ -514,7 +565,6 @@ else
   echo -e "${COLOR_RED}openclaw.json: FEHLER -- bootstrap.sh erneut ausfuehren${COLOR_NC}"
 fi
 
-# DB Mount Verifikation direkt in docker inspect
 if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
   echo -e "${COLOR_GREEN}DB Mount:      OK /home/node/forge-db gemountet${COLOR_NC}"
 else
