@@ -3,7 +3,6 @@ const TABS = [
   { id: 'scrum', label: 'Scrum Board', icon: '⬡' },
   { id: 'projects', label: 'Projekte', icon: '◫' },
   { id: 'team', label: 'Team', icon: '◈' },
-  { id: 'files', label: 'File Browser', icon: '◱' },
 ];
 
 export default function Nav({ active, onChange }) {

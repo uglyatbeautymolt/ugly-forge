@@ -1,6 +1,27 @@
+import { useState, useEffect, useCallback } from 'react';
 import { STATUS_COLORS, STATUS_LABELS } from '../config/agents.js';
 
+const EXT_ICON = {
+  html: '🌐', css: '🎨', js: '⚡', json: '{}', md: '📝',
+  png: '🖼', jpg: '🖼', jpeg: '🖼', svg: '🖼', gif: '🖼',
+  txt: '📄', sh: '⚙️'
+};
+
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function fileIcon(name, isDir) {
+  if (isDir) return '📁';
+  const ext = name.split('.').pop().toLowerCase();
+  return EXT_ICON[ext] || '📄';
+}
+
+function isImage(name) { return /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(name); }
+
 export default function ProjectsView({ projects, tasks }) {
+  const [openProject, setOpenProject] = useState(null);
+
   if (!projects || projects.length === 0) {
     return (
       <div className="fade-in" style={{ textAlign: 'center', paddingTop: '4rem', color: 'var(--text3)' }}>
@@ -18,115 +39,233 @@ export default function ProjectsView({ projects, tasks }) {
           key={project.id}
           project={project}
           tasks={(tasks || []).filter(t => t.project_id === project.id)}
+          isOpen={openProject === project.id}
+          onToggle={() => setOpenProject(openProject === project.id ? null : project.id)}
         />
       ))}
     </div>
   );
 }
 
-function ProjectCard({ project, tasks }) {
+function ProjectCard({ project, tasks, isOpen, onToggle }) {
+  const [files, setFiles] = useState([]);
+  const [expanded, setExpanded] = useState({});
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileContent, setFileContent] = useState(null);
+  const [loadingFile, setLoadingFile] = useState(false);
+
   const progress = project.tasks_total > 0
-    ? Math.round((project.tasks_done / project.tasks_total) * 100)
-    : 0;
-
+    ? Math.round((project.tasks_done / project.tasks_total) * 100) : 0;
   const budgetPct = project.budget_estimated > 0
-    ? Math.min(100, Math.round((project.budget_used / project.budget_estimated) * 100))
-    : 0;
-
+    ? Math.min(100, Math.round((project.budget_used / project.budget_estimated) * 100)) : 0;
   const budgetOk = budgetPct < 80;
   const budgetWarn = budgetPct >= 80 && budgetPct < 100;
+  const tasksByStatus = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
 
-  const tasksByStatus = tasks.reduce((acc, t) => {
-    acc[t.status] = (acc[t.status] || 0) + 1;
-    return acc;
-  }, {});
+  // Dateien laden wenn Karte geöffnet wird
+  useEffect(() => {
+    if (!isOpen) return;
+    const slug = slugify(project.name);
+    // Versuche zuerst Projektordner, dann Root
+    fetch(`/api/files?path=${encodeURIComponent(slug)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setFiles(data.map(f => ({ ...f, basePath: slug })));
+        } else {
+          // Fallback: Root zeigen
+          return fetch('/api/files').then(r => r.json()).then(d => setFiles(d || []));
+        }
+      })
+      .catch(() => setFiles([]));
+  }, [isOpen, project.name]);
+
+  const handleFileClick = useCallback(async (entry) => {
+    if (entry.type === 'dir') {
+      setExpanded(prev => ({ ...prev, [entry.path]: !prev[entry.path] }));
+      if (!expanded[entry.path]) {
+        const children = await fetch(`/api/files?path=${encodeURIComponent(entry.path)}`)
+          .then(r => r.json()).catch(() => []);
+        setFiles(prev => prev.map(f =>
+          f.path === entry.path ? { ...f, children } :
+          f.children ? { ...f, children: injectChildren(f.children, entry.path, children) } : f
+        ));
+      }
+      return;
+    }
+    setSelectedFile(entry.path);
+    setLoadingFile(true);
+    setFileContent(null);
+    try {
+      const data = await fetch(`/api/files?path=${encodeURIComponent(entry.path)}`).then(r => r.json());
+      setFileContent({ ...data, name: entry.name, path: entry.path });
+    } catch (e) {
+      setFileContent({ content: 'Fehler beim Laden', name: entry.name, path: entry.path });
+    }
+    setLoadingFile(false);
+  }, [expanded]);
 
   return (
     <div style={{
-      background: 'var(--bg2)',
-      border: '1px solid var(--border)',
-      borderRadius: '12px',
-      padding: '1.25rem',
-      display: 'grid',
-      gridTemplateColumns: '1fr auto',
-      gap: '1rem'
+      background: 'var(--bg2)', border: '1px solid var(--border)',
+      borderRadius: '12px', overflow: 'hidden'
     }}>
-      {/* Links: Info */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-          <div style={{
-            width: '8px', height: '8px', borderRadius: '50%',
-            background: project.status === 'deployed' ? 'var(--green)'
-              : project.status === 'developing' ? 'var(--blue)'
-              : project.status === 'planning' ? 'var(--text3)'
-              : 'var(--amber)'
-          }} />
-          <span style={{ fontWeight: 500, fontSize: '15px' }}>{project.name}</span>
-          <span style={{
-            fontSize: '11px',
-            color: 'var(--text3)',
-            background: 'var(--bg4)',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            fontFamily: 'var(--mono)'
-          }}>{project.status}</span>
-        </div>
-
-        {project.github_repo && (
-          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '10px', fontFamily: 'var(--mono)' }}>
-            github.com/{project.github_repo}
-          </div>
-        )}
-
-        {/* Task-Status-Badges */}
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-          {Object.entries(tasksByStatus).map(([status, count]) => (
-            <span key={status} style={{
-              fontSize: '11px',
-              padding: '2px 8px',
-              borderRadius: '4px',
-              background: STATUS_COLORS[status] + '22',
-              color: STATUS_COLORS[status],
-              fontFamily: 'var(--mono)'
-            }}>
-              {STATUS_LABELS[status] || status} {count}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Rechts: Metriken */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '160px' }}>
-        {/* Tasks Progress */}
+      {/* Header — anklickbar */}
+      <div
+        onClick={onToggle}
+        style={{
+          padding: '1.25rem', cursor: 'pointer',
+          display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem',
+          borderBottom: isOpen ? '1px solid var(--border)' : 'none'
+        }}
+      >
+        {/* Links */}
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
-            <span>Tasks</span>
-            <span style={{ fontFamily: 'var(--mono)' }}>{project.tasks_done}/{project.tasks_total}</span>
-          </div>
-          <div style={{ height: '4px', background: 'var(--bg4)', borderRadius: '2px', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${progress}%`, background: 'var(--blue)', borderRadius: '2px', transition: 'width 0.3s' }} />
-          </div>
-        </div>
-
-        {/* Budget Progress */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
-            <span>Budget</span>
-            <span style={{ fontFamily: 'var(--mono)', color: budgetOk ? 'var(--text2)' : budgetWarn ? 'var(--amber)' : 'var(--red)' }}>
-              ${(project.budget_used || 0).toFixed(2)} / ${(project.budget_estimated || 0).toFixed(2)}
-            </span>
-          </div>
-          <div style={{ height: '4px', background: 'var(--bg4)', borderRadius: '2px', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
             <div style={{
-              height: '100%',
-              width: `${budgetPct}%`,
-              background: budgetOk ? 'var(--green)' : budgetWarn ? 'var(--amber)' : 'var(--red)',
-              borderRadius: '2px',
-              transition: 'width 0.3s'
+              width: '8px', height: '8px', borderRadius: '50%',
+              background: project.status === 'deployed' ? 'var(--green)'
+                : project.status === 'developing' ? 'var(--blue)'
+                : project.status === 'planning' ? 'var(--text3)' : 'var(--amber)'
             }} />
+            <span style={{ fontWeight: 500, fontSize: '15px' }}>{project.name}</span>
+            <span style={{
+              fontSize: '11px', color: 'var(--text3)', background: 'var(--bg4)',
+              padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--mono)'
+            }}>{project.status}</span>
+            <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text3)' }}>
+              {isOpen ? '▲' : '▼'}
+            </span>
+          </div>
+          {project.github_repo && (
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '10px', fontFamily: 'var(--mono)' }}>
+              github.com/{project.github_repo}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {Object.entries(tasksByStatus).map(([status, count]) => (
+              <span key={status} style={{
+                fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
+                background: STATUS_COLORS[status] + '22', color: STATUS_COLORS[status],
+                fontFamily: 'var(--mono)'
+              }}>{STATUS_LABELS[status] || status} {count}</span>
+            ))}
+          </div>
+        </div>
+        {/* Rechts: Metriken */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '160px' }}>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
+              <span>Tasks</span>
+              <span style={{ fontFamily: 'var(--mono)' }}>{project.tasks_done}/{project.tasks_total}</span>
+            </div>
+            <div style={{ height: '4px', background: 'var(--bg4)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${progress}%`, background: 'var(--blue)', borderRadius: '2px', transition: 'width 0.3s' }} />
+            </div>
+          </div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
+              <span>Budget</span>
+              <span style={{ fontFamily: 'var(--mono)', color: budgetOk ? 'var(--text2)' : budgetWarn ? 'var(--amber)' : 'var(--red)' }}>
+                ${(project.budget_used || 0).toFixed(2)} / ${(project.budget_estimated || 0).toFixed(2)}
+              </span>
+            </div>
+            <div style={{ height: '4px', background: 'var(--bg4)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${budgetPct}%`, background: budgetOk ? 'var(--green)' : budgetWarn ? 'var(--amber)' : 'var(--red)', borderRadius: '2px', transition: 'width 0.3s' }} />
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Aufgeklappter Bereich: File Browser */}
+      {isOpen && (
+        <div style={{ display: 'flex', height: '380px' }}>
+          {/* Dateibaum */}
+          <div style={{
+            width: '240px', flexShrink: 0, borderRight: '1px solid var(--border)',
+            overflowY: 'auto', padding: '10px'
+          }}>
+            <div style={{ fontSize: '10px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', padding: '0 4px' }}>
+              📂 {slugify(project.name)}/
+            </div>
+            {files.length === 0 ? (
+              <div style={{ fontSize: '12px', color: 'var(--text3)', padding: '8px 4px' }}>
+                Keine Dateien gefunden
+              </div>
+            ) : (
+              <FileTree entries={files} selected={selectedFile} onSelect={handleFileClick} expanded={expanded} />
+            )}
+          </div>
+
+          {/* Inhalt */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {!selectedFile && (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                ← Datei auswählen
+              </div>
+            )}
+            {loadingFile && (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                Lade...
+              </div>
+            )}
+            {fileContent && !loadingFile && (
+              <>
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+                  {fileContent.path}
+                </div>
+                <div style={{ flex: 1, overflow: 'auto' }}>
+                  {isImage(fileContent.name) ? (
+                    <div style={{ padding: '1rem', textAlign: 'center' }}>
+                      <img src={`/api/files/raw?path=${encodeURIComponent(fileContent.path)}`} alt={fileContent.name} style={{ maxWidth: '100%', maxHeight: '300px' }} />
+                    </div>
+                  ) : fileContent.name?.endsWith('.html') ? (
+                    <iframe srcDoc={fileContent.content} style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }} sandbox="allow-scripts" title={fileContent.name} />
+                  ) : (
+                    <pre style={{ margin: 0, padding: '1rem', fontSize: '11px', lineHeight: '1.6', color: 'var(--text1)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {fileContent.content || '(Leere Datei)'}
+                    </pre>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function FileTree({ entries, selected, onSelect, expanded }) {
+  return (
+    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+      {entries.map(e => (
+        <li key={e.path}>
+          <button onClick={() => onSelect(e)} style={{
+            width: '100%', textAlign: 'left',
+            background: selected === e.path ? 'var(--bg3)' : 'none',
+            border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px',
+            fontSize: '12px', color: 'var(--text1)', display: 'flex', alignItems: 'center', gap: '5px',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+          }}>
+            <span style={{ flexShrink: 0 }}>{fileIcon(e.name, e.type === 'dir')}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.name}</span>
+          </button>
+          {e.type === 'dir' && expanded[e.path] && e.children?.length > 0 && (
+            <div style={{ paddingLeft: '14px' }}>
+              <FileTree entries={e.children} selected={selected} onSelect={onSelect} expanded={expanded} />
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function injectChildren(entries, targetPath, children) {
+  return entries.map(e => {
+    if (e.path === targetPath) return { ...e, children };
+    if (e.children) return { ...e, children: injectChildren(e.children, targetPath, children) };
+    return e;
+  });
 }

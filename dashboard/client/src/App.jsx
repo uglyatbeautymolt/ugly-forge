@@ -6,7 +6,6 @@ import TeamView from './views/TeamView.jsx';
 import ProjectsView from './views/ProjectsView.jsx';
 import LiveMonitor from './views/LiveMonitor.jsx';
 import ScrumBoard from './views/ScrumBoard.jsx';
-import FileBrowser from './views/FileBrowser.jsx';
 
 export default function App() {
   const [view, setView] = useState('live');
@@ -21,7 +20,6 @@ export default function App() {
         {view === 'scrum'    && <ScrumBoard tasks={data.tasks} projects={data.projects} />}
         {view === 'projects' && <ProjectsView projects={data.projects} tasks={data.tasks} />}
         {view === 'team'     && <TeamView agents={data.agents} />}
-        {view === 'files'    && <FileBrowser />}
       </main>
     </div>
   );
