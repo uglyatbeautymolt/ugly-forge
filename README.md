@@ -20,21 +20,10 @@ Erweiterung fuer [ugly-stack](https://github.com/uglyatbeautymolt/VPS_Bootstrap)
 
 ## Installation
 
-**Als User `alex` ausfuehren — nicht als root!**
+**Als root ausfuehren** — das Skript wechselt intern zu alex:
 
 ```bash
-# 1. Als alex einloggen bzw. wechseln
-su - alex
-
-# 2. Ins Home-Verzeichnis (neben ugly-stack)
-cd ~
-
-# 3. Repo klonen
-git clone https://github.com/uglyatbeautymolt/ugly-forge.git
-cd ugly-forge
-
-# 4. Bootstrap ausfuehren
-bash bootstrap.sh
+su - alex -c "git clone https://github.com/uglyatbeautymolt/ugly-forge.git /home/alex/ugly-forge && bash /home/alex/ugly-forge/bootstrap.sh"
 ```
 
 ---
@@ -65,7 +54,7 @@ Erreichbar unter `https://dashboard.beautymolt.com` — wird automatisch von `bo
 ## Deinstallation
 
 ```bash
-bash uninstall.sh
+bash /home/alex/ugly-forge/uninstall.sh
 ```
 
 ---
