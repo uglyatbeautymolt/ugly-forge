@@ -406,6 +406,14 @@ DASH_HASH_OLD=$(cat "$DASH_HASH_FILE" 2>/dev/null || echo "")
 if [ "$DASH_HASH_NEW" = "$DASH_HASH_OLD" ] && docker inspect forge-dashboard &>/dev/null; then
   echo -e "  ${COLOR_GREEN}v Dashboard unveraendert -- kein Rebuild noetig${COLOR_NC}"
 else
+  # React-Frontend bauen (client/dist/ wird vom Dockerfile benoetigt)
+  echo -e "  Baue React-Frontend..."
+  cd "$FORGE_DIR/dashboard/client"
+  npm install --silent
+  npm run build --silent
+  cd "$FORGE_DIR"
+  echo -e "  v React-Frontend gebaut"
+
   echo -e "  Baue Dashboard-Image..."
   docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
   docker rm -f forge-dashboard 2>/dev/null || true
