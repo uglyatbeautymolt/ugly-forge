@@ -270,7 +270,7 @@ PYEOF
 fi
 
 # ----------------------------------------------------------------
-# 8. SQLITE DB + SCHEMA MIGRATION
+# 8. SQLITE DB + SCHEMA MIGRATION + OVERRIDE INSTALLIEREN
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[8/11] Initialisiere SQLite Datenbank...${COLOR_NC}"
 
@@ -371,165 +371,34 @@ SQL
 
 echo -e "${COLOR_GREEN}OK SQLite DB + Migrationen: $FORGE_DB_DIR/projects.db${COLOR_NC}"
 
-STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
-
-# DB Mount fuer openclaw (nur falls noch nicht vorhanden)
-# Python statt sed -- unabhaengig von Kommentaren im YAML
-if ! grep -A30 "^  openclaw:" "$STACK_COMPOSE" | grep -q "forge-db"; then
-  cp "$STACK_COMPOSE" "${STACK_COMPOSE}.bak-$(date +%Y%m%d-%H%M%S)"
-  python3 << PYEOF
-import sys
-compose_path = "$STACK_COMPOSE"
-forge_db_path = "$FORGE_DB_DIR"
-lines = open(compose_path).readlines()
-in_openclaw = False
-in_volumes = False
-insert_idx = None
-for i, line in enumerate(lines):
-    stripped = line.strip()
-    indent = len(line) - len(line.lstrip())
-    if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
-        if stripped == 'openclaw:':
-            in_openclaw = True
-        elif in_openclaw:
-            break
-    if in_openclaw:
-        if stripped == 'volumes:':
-            in_volumes = True
-        elif in_volumes:
-            if indent >= 4 and stripped.startswith('-'):
-                insert_idx = i + 1
-            elif indent < 4 and stripped:
-                break
-if insert_idx is None:
-    print("FEHLER: openclaw volumes-Sektion nicht gefunden"); sys.exit(1)
-mount = f"      - {forge_db_path}:/home/node/forge-db\n"
-lines.insert(insert_idx, mount)
-open(compose_path, 'w').writelines(lines)
-print("OK")
-PYEOF
-  echo -e "  + DB Mount in openclaw eingefuegt"
+# docker-compose.override.yml nach $STACK_DIR/ kopieren.
+# Docker Compose laedt sie automatisch wenn sie im selben Verzeichnis liegt.
+# Kein Patching von docker-compose.yml noetig.
+if [ ! -f "$STACK_DIR/docker-compose.override.yml" ] || \
+   ! diff -q "$FORGE_DIR/docker-compose.override.yml" "$STACK_DIR/docker-compose.override.yml" > /dev/null 2>&1; then
+  cp "$FORGE_DIR/docker-compose.override.yml" "$STACK_DIR/docker-compose.override.yml"
+  echo -e "  + docker-compose.override.yml nach $STACK_DIR/ installiert"
 else
-  echo -e "  v DB Mount bereits vorhanden"
+  echo -e "  v docker-compose.override.yml bereits aktuell"
 fi
 
-# ----------------------------------------------------------------
-# 9. DASHBOARD — forge-dashboard konfigurieren
-# ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[9/11] Konfiguriere forge-dashboard...${COLOR_NC}"
-
-WWW_PATH="$STACK_DIR/www"
-mkdir -p "$WWW_PATH"
-
-OC_PROJECTS_PATH="$OC_DATA/workspace/projects"
-mkdir -p "$OC_PROJECTS_PATH"
-
-DB_PATH="$FORGE_DB_DIR"
-
-# Pruefe ob forge-dashboard korrekt konfiguriert ist
-DASH_OK=true
-if ! grep -q "forge-dashboard:" "$STACK_COMPOSE"; then DASH_OK=false; fi
-if ! grep -A20 "forge-dashboard:" "$STACK_COMPOSE" | grep -q "workspace/projects"; then DASH_OK=false; fi
-if ! grep -A20 "forge-dashboard:" "$STACK_COMPOSE" | grep -q "forge-db"; then DASH_OK=false; fi
-
-if [ "$DASH_OK" = "true" ]; then
-  echo -e "  v forge-dashboard bereits korrekt konfiguriert"
+# YAML validieren (base + override zusammen)
+if cd "$STACK_DIR" && docker compose config --quiet 2>/dev/null; then
+  echo -e "  ${COLOR_GREEN}v YAML valide (base + override)${COLOR_NC}"
 else
-  echo -e "  Schreibe forge-dashboard Block..."
-  cp "$STACK_COMPOSE" "${STACK_COMPOSE}.bak-$(date +%Y%m%d-%H%M%S)"
-
-  # Korrekte forge-dashboard Konfiguration als temporaere Datei
-  DASH_BLOCK=$(cat << DASHEOF
-
-  forge-dashboard:
-    image: forge-dashboard:latest
-    container_name: forge-dashboard
-    restart: unless-stopped
-    ports:
-      - "3001:3001"
-    volumes:
-      - ${DB_PATH}:/home/node/forge-db
-      - ${WWW_PATH}:/home/node/www
-      - ${OC_PROJECTS_PATH}:/home/node/workspace/projects
-    environment:
-      - PORT=3001
-      - DB_PATH=/home/node/forge-db/projects.db
-      - WWW_PATH=/home/node/www
-      - WORKSPACE_PATH=/home/node/workspace/projects
-    networks:
-      - ugly-net
-DASHEOF
-)
-
-  # Python mit korrektem Section-Tracking
-  python3 << PYEOF
-content = open("$STACK_COMPOSE").read()
-block = """$DASH_BLOCK"""
-
-# Entferne alten forge-dashboard Block falls vorhanden
-# Strategie: Zeilen-basiert, mit Section-Tracking um volumes: nicht zu beruehren
-lines = content.splitlines(keepends=True)
-new_lines = []
-current_section = None   # 'services', 'volumes', 'networks', etc.
-in_dash = False
-skip_dash = False
-
-for line in lines:
-    # Top-level Sektion erkennen (kein fuehrendes Leerzeichen)
-    if line and not line[0].isspace() and ':' in line:
-        current_section = line.split(':')[0].strip()
-        in_dash = False
-        skip_dash = False
-
-    # Service-Block Erkennung NUR innerhalb der services: Sektion
-    if current_section == 'services':
-        stripped = line.strip()
-        indent = len(line) - len(line.lstrip())
-        if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
-            svc_name = stripped[:-1]
-            if svc_name == 'forge-dashboard':
-                in_dash = True
-                skip_dash = True
-                continue  # diesen Block ueberspringen
-            elif in_dash:
-                # Naechster Service nach forge-dashboard
-                in_dash = False
-                skip_dash = False
-
-    if skip_dash:
-        continue  # Zeilen des alten forge-dashboard Blocks ueberspringen
-
-    new_lines.append(line)
-
-content = ''.join(new_lines)
-
-# forge-dashboard Block vor 'volumes:' einfuegen
-if '\nvolumes:' in content:
-    content = content.replace('\nvolumes:', block + '\n\nvolumes:')
-else:
-    content = content.rstrip() + block + '\n'
-
-open("$STACK_COMPOSE", 'w').write(content)
-print("OK")
-PYEOF
-
-  echo -e "  + forge-dashboard Block geschrieben"
-fi
-
-# YAML validieren
-if docker compose -f "$STACK_COMPOSE" config --quiet 2>/dev/null; then
-  echo -e "  ${COLOR_GREEN}v YAML valide${COLOR_NC}"
-else
-  echo -e "  ${COLOR_RED}! YAML ungueltig -- stelle Backup wieder her${COLOR_NC}"
-  LATEST_BAK=$(ls -t "${STACK_COMPOSE}.bak-"* 2>/dev/null | head -1)
-  if [ -n "$LATEST_BAK" ]; then
-    cp "$LATEST_BAK" "$STACK_COMPOSE"
-    echo -e "  + Backup wiederhergestellt: $LATEST_BAK"
-  fi
+  echo -e "  ${COLOR_RED}! YAML ungueltig -- override pruefen${COLOR_NC}"
   exit 1
 fi
 
-# Dashboard Image bauen und starten -- nur bei Aenderungen (Checksum-Gate)
+# ----------------------------------------------------------------
+# 9. DASHBOARD IMAGE BAUEN + STARTEN
+# ----------------------------------------------------------------
+echo -e "${COLOR_YELLOW}[9/11] Baue und starte forge-dashboard...${COLOR_NC}"
+
+mkdir -p "$STACK_DIR/www"
+mkdir -p "$OC_DATA/workspace/projects"
+
+# Nur bei Aenderungen rebuild (Checksum-Gate)
 DASH_HASH_NEW=$(find "$FORGE_DIR/dashboard" -type f | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
 DASH_HASH_FILE="$FORGE_DB_DIR/.dashboard-hash"
 DASH_HASH_OLD=$(cat "$DASH_HASH_FILE" 2>/dev/null || echo "")
@@ -540,7 +409,7 @@ else
   echo -e "  Baue Dashboard-Image..."
   docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
   docker rm -f forge-dashboard 2>/dev/null || true
-  docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
+  cd "$STACK_DIR" && docker compose up -d forge-dashboard
   sleep 3
   echo "$DASH_HASH_NEW" > "$DASH_HASH_FILE"
   echo -e "  + Dashboard neu gebaut und gestartet"
@@ -607,14 +476,13 @@ else
 fi
 
 # ----------------------------------------------------------------
-# 11. OPENCLAW NEU STARTEN
+# 11. OPENCLAW + NGINX NEU STARTEN
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[11/11] Starte OpenClaw + nginx neu...${COLOR_NC}"
 
-# Kein --force-recreate: Docker Compose erkennt Aenderungen selbst und
-# recreated nur wenn noetig (geaendertes Image, Env-Vars oder Volume-Mapping)
-docker compose -f "$STACK_DIR/docker-compose.yml" up -d openclaw
-docker compose -f "$STACK_DIR/docker-compose.yml" restart nginx
+# docker compose ohne -f: laedt docker-compose.yml + docker-compose.override.yml automatisch
+cd "$STACK_DIR" && docker compose up -d openclaw
+cd "$STACK_DIR" && docker compose restart nginx
 sleep 5
 
 docker exec -u 0 openclaw bash -c "command -v sqlite3 || (apt-get update -qq && apt-get install -y -qq sqlite3)" 2>/dev/null \
@@ -639,6 +507,12 @@ if grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
   echo -e "${COLOR_GREEN}openclaw.json: OK${COLOR_NC}"
 else
   echo -e "${COLOR_RED}openclaw.json: FEHLER${COLOR_NC}"
+fi
+
+if [ -f "$STACK_DIR/docker-compose.override.yml" ]; then
+  echo -e "${COLOR_GREEN}Override:      OK ($STACK_DIR/docker-compose.override.yml)${COLOR_NC}"
+else
+  echo -e "${COLOR_RED}Override:      FEHLER -- docker-compose.override.yml fehlt${COLOR_NC}"
 fi
 
 if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
