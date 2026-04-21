@@ -22,12 +22,16 @@ echo -e "${COLOR_YELLOW}ugly-forge Deinstallation...${COLOR_NC}"
 echo ""
 
 # ----------------------------------------------------------------
-# 1. VOLUME MOUNT ENTFERNEN
+# 1. DOCKER-COMPOSE OVERRIDE ENTFERNEN
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[1/4] Entferne Volume Mount...${COLOR_NC}"
-sed -i "/ugly-forge\/workspace/d" "$STACK_DIR/docker-compose.yml"
-sed -i "/ugly-forge\/db/d" "$STACK_DIR/docker-compose.yml"
-echo -e "${COLOR_GREEN}OK Volume Mount entfernt${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[1/4] Entferne docker-compose.override.yml...${COLOR_NC}"
+
+if [ -f "$STACK_DIR/docker-compose.override.yml" ]; then
+  rm -f "$STACK_DIR/docker-compose.override.yml"
+  echo -e "${COLOR_GREEN}OK docker-compose.override.yml entfernt${COLOR_NC}"
+else
+  echo -e "  v docker-compose.override.yml nicht vorhanden -- nichts zu tun"
+fi
 
 # ----------------------------------------------------------------
 # 2. NGINX BLOCK ENTFERNEN
@@ -42,11 +46,11 @@ import re
 with open("$NGINX_CONF", "r") as f:
     content = f.read()
 cleaned = re.sub(
-    r'\\n*server\\s*\\{[^}]*server_name[^}]*dashboard\\.beautymolt\\.com[^}]*\\}',
+    r'\n*server\s*\{[^}]*server_name[^}]*dashboard\.beautymolt\.com[^}]*\}',
     '', content, flags=re.DOTALL
 )
 with open("$NGINX_CONF", "w") as f:
-    f.write(cleaned.strip() + "\\n")
+    f.write(cleaned.strip() + "\n")
 PYEOF
   echo -e "${COLOR_GREEN}OK nginx: dashboard.beautymolt.com Block entfernt${COLOR_NC}"
 else
@@ -100,11 +104,21 @@ else
 fi
 
 # ----------------------------------------------------------------
-# 4. OPENCLAW + NGINX NEU STARTEN + ARCHIVIERUNG
+# 4. CONTAINER ENTFERNEN + OPENCLAW OHNE OVERRIDE NEU STARTEN
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[4/4] Starte OpenClaw + nginx neu...${COLOR_NC}"
-docker compose -f "$STACK_DIR/docker-compose.yml" restart openclaw nginx
-echo -e "${COLOR_GREEN}OK OpenClaw + nginx neugestartet${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[4/4] Raeume Container auf + starte openclaw neu...${COLOR_NC}"
+
+# forge-dashboard stoppen und entfernen
+docker rm -f forge-dashboard 2>/dev/null || true
+echo -e "  v forge-dashboard entfernt"
+
+# openclaw ohne override neu starten -- forge-db Mount verschwindet automatisch
+cd "$STACK_DIR" && docker compose up -d --force-recreate openclaw
+echo -e "  v openclaw ohne forge-db Mount neugestartet"
+
+# nginx neu starten (dashboard Block entfernt)
+cd "$STACK_DIR" && docker compose restart nginx
+echo -e "${COLOR_GREEN}OK Container aufgeraeumt + Stack neugestartet${COLOR_NC}"
 
 echo ""
 read -p "projects.db nach ~/ugly-forge-backup.db kopieren? (j/n) " -n 1 -r
