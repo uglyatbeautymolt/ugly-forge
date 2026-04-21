@@ -374,11 +374,40 @@ echo -e "${COLOR_GREEN}OK SQLite DB + Migrationen: $FORGE_DB_DIR/projects.db${CO
 STACK_COMPOSE="$STACK_DIR/docker-compose.yml"
 
 # DB Mount fuer openclaw (nur falls noch nicht vorhanden)
+# Python statt sed -- unabhaengig von Kommentaren im YAML
 if ! grep -A30 "^  openclaw:" "$STACK_COMPOSE" | grep -q "forge-db"; then
-  # Backup vor Aenderung
   cp "$STACK_COMPOSE" "${STACK_COMPOSE}.bak-$(date +%Y%m%d-%H%M%S)"
-  # Zeile nach letztem openclaw-Volume einfuegen
-  sed -i "/home\/node\/www.*# Webadmin/a\\      - $FORGE_DB_DIR:/home/node/forge-db" "$STACK_COMPOSE"
+  python3 << PYEOF
+import sys
+compose_path = "$STACK_COMPOSE"
+forge_db_path = "$FORGE_DB_DIR"
+lines = open(compose_path).readlines()
+in_openclaw = False
+in_volumes = False
+insert_idx = None
+for i, line in enumerate(lines):
+    stripped = line.strip()
+    indent = len(line) - len(line.lstrip())
+    if indent == 2 and stripped.endswith(':') and not stripped.startswith('-'):
+        if stripped == 'openclaw:':
+            in_openclaw = True
+        elif in_openclaw:
+            break
+    if in_openclaw:
+        if stripped == 'volumes:':
+            in_volumes = True
+        elif in_volumes:
+            if indent >= 4 and stripped.startswith('-'):
+                insert_idx = i + 1
+            elif indent < 4 and stripped:
+                break
+if insert_idx is None:
+    print("FEHLER: openclaw volumes-Sektion nicht gefunden"); sys.exit(1)
+mount = f"      - {forge_db_path}:/home/node/forge-db\n"
+lines.insert(insert_idx, mount)
+open(compose_path, 'w').writelines(lines)
+print("OK")
+PYEOF
   echo -e "  + DB Mount in openclaw eingefuegt"
 else
   echo -e "  v DB Mount bereits vorhanden"
@@ -500,13 +529,23 @@ else
   exit 1
 fi
 
-# Dashboard Image bauen und starten
-echo -e "  Baue Dashboard-Image..."
-docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
-docker rm -f forge-dashboard 2>/dev/null || true
-docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
-sleep 3
-echo -e "${COLOR_GREEN}OK Dashboard gestartet${COLOR_NC}"
+# Dashboard Image bauen und starten -- nur bei Aenderungen (Checksum-Gate)
+DASH_HASH_NEW=$(find "$FORGE_DIR/dashboard" -type f | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+DASH_HASH_FILE="$FORGE_DB_DIR/.dashboard-hash"
+DASH_HASH_OLD=$(cat "$DASH_HASH_FILE" 2>/dev/null || echo "")
+
+if [ "$DASH_HASH_NEW" = "$DASH_HASH_OLD" ] && docker inspect forge-dashboard &>/dev/null; then
+  echo -e "  ${COLOR_GREEN}v Dashboard unveraendert -- kein Rebuild noetig${COLOR_NC}"
+else
+  echo -e "  Baue Dashboard-Image..."
+  docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
+  docker rm -f forge-dashboard 2>/dev/null || true
+  docker compose -f "$STACK_COMPOSE" up -d forge-dashboard
+  sleep 3
+  echo "$DASH_HASH_NEW" > "$DASH_HASH_FILE"
+  echo -e "  + Dashboard neu gebaut und gestartet"
+fi
+echo -e "${COLOR_GREEN}OK Dashboard${COLOR_NC}"
 
 # ----------------------------------------------------------------
 # 10. CLOUDFLARE TUNNEL + NGINX
@@ -572,7 +611,9 @@ fi
 # ----------------------------------------------------------------
 echo -e "${COLOR_YELLOW}[11/11] Starte OpenClaw + nginx neu...${COLOR_NC}"
 
-docker compose -f "$STACK_DIR/docker-compose.yml" up -d --force-recreate openclaw
+# Kein --force-recreate: Docker Compose erkennt Aenderungen selbst und
+# recreated nur wenn noetig (geaendertes Image, Env-Vars oder Volume-Mapping)
+docker compose -f "$STACK_DIR/docker-compose.yml" up -d openclaw
 docker compose -f "$STACK_DIR/docker-compose.yml" restart nginx
 sleep 5
 
