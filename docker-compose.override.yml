@@ -1,0 +1,32 @@
+# docker-compose.override.yml — ugly-forge Erweiterungen
+# Wird von ugly-forge bootstrap.sh nach $STACK_DIR/ kopiert.
+# Automatisch von Docker Compose geladen (kein -f Flag nötig).
+# Löschen via ugly-forge uninstall.sh um forge zu deinstallieren.
+
+services:
+
+  openclaw:
+    volumes:
+      - /home/alex/ugly-forge/db:/home/node/forge-db
+
+  forge-dashboard:
+    image: forge-dashboard:latest
+    container_name: forge-dashboard
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - /home/alex/ugly-forge/db:/home/node/forge-db
+      - /home/alex/ugly-stack/www:/home/node/www
+      - /home/alex/ugly-stack/openclaw-data/workspace/projects:/home/node/workspace/projects
+    environment:
+      - PORT=3001
+      - DB_PATH=/home/node/forge-db/projects.db
+      - WWW_PATH=/home/node/www
+      - WORKSPACE_PATH=/home/node/workspace/projects
+    networks:
+      - ugly-net
+
+networks:
+  ugly-net:
+    external: true
