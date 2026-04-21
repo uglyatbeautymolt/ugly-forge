@@ -11,24 +11,29 @@ Erweiterung fuer [ugly-stack](https://github.com/uglyatbeautymolt/VPS_Bootstrap)
 `ugly-forge` muss **neben** `ugly-stack` liegen:
 
 ```
-/home/dein-user/
-├── VPS_Bootstrap/     ← ugly-stack (bereits vorhanden)
-└── ugly-forge/        ← hier klonen!
+/home/alex/
+├── ugly-stack/    ← VPS_Bootstrap (bereits vorhanden)
+└── ugly-forge/    ← hier klonen!
 ```
 
 ---
 
 ## Installation
 
+**Als User `alex` ausfuehren — nicht als root!**
+
 ```bash
-# 1. Ins Home-Verzeichnis (neben ugly-stack)
+# 1. Als alex einloggen bzw. wechseln
+su - alex
+
+# 2. Ins Home-Verzeichnis (neben ugly-stack)
 cd ~
 
-# 2. Repo klonen
+# 3. Repo klonen
 git clone https://github.com/uglyatbeautymolt/ugly-forge.git
 cd ugly-forge
 
-# 3. Bootstrap ausfuehren (als normaler User, nicht root)
+# 4. Bootstrap ausfuehren
 bash bootstrap.sh
 ```
 
@@ -49,27 +54,11 @@ docker exec -it openclaw openclaw agent --agent forge-orchestrator --message 'Ha
 docker exec openclaw openclaw status
 ```
 
-Oder direkt in den Container wechseln:
-
-```bash
-docker exec -it openclaw bash
-# Dann: openclaw agents list
-```
-
 ---
 
 ## Dashboard
 
-```bash
-bash dashboard/build.sh
-```
-
-Erreichbar unter `https://dashboard.beautymolt.com` nach nginx-Konfiguration:
-
-```bash
-sudo cp dashboard/nginx.conf /etc/nginx/conf.d/forge-dashboard.conf
-sudo nginx -t && sudo nginx -s reload
-```
+Erreichbar unter `https://dashboard.beautymolt.com` — wird automatisch von `bootstrap.sh` gebaut und gestartet.
 
 ---
 
@@ -104,12 +93,10 @@ bash uninstall.sh
 
 | Was | Detail |
 |-----|--------|
-| OC-Befehle | `docker exec openclaw openclaw ...` |
-| SKILL.md descriptions | Immer in `"..."` — unquoted Colons crashen den Parser |
-| openclaw.json Syntax | Reines JSON, `model.primary` |
-| `tools.loopDetection` | Unter `agents.defaults.tools` |
+| Skills Pfad | `openclaw-data/workspace/skills/` |
 | SQLite Pfad (Container) | `/home/node/forge-db/projects.db` |
-| Skills Pfad | `~/.openclaw/skills/` (shared) |
+| SKILL.md descriptions | Immer in `"..."` — unquoted Colons crashen den Parser |
+| openclaw.json Syntax | Reines JSON |
 
 ---
 
