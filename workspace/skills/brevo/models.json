@@ -1,0 +1,10 @@
+{
+  "agent": "brevo",
+  "default": "budget",
+  "models": {
+    "free": "qwen/qwen3-coder:free",
+    "budget": "google/gemini-2.5-flash-lite",
+    "standard": "deepseek/deepseek-chat",
+    "premium": "deepseek/deepseek-r1"
+  }
+}
