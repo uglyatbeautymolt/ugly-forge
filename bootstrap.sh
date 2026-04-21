@@ -170,17 +170,22 @@ echo -e "${COLOR_YELLOW}[5/11] Installiere Skills...${COLOR_NC}"
 mkdir -p "$OC_SKILLS"
 
 SKILL_COUNT=0
+SKILL_SKIP=0
 for SKILL_DIR in "$FORGE_DIR/workspace/skills/"/*/; do
   if [ -d "$SKILL_DIR" ]; then
     SKILL_NAME=$(basename "$SKILL_DIR")
     TARGET="$OC_SKILLS/$SKILL_NAME"
-    rm -rf "$TARGET"
-    cp -r "$SKILL_DIR" "$TARGET"
-    SKILL_COUNT=$((SKILL_COUNT + 1))
-    echo -e "  + $SKILL_NAME"
+    if [ -d "$TARGET" ]; then
+      echo -e "  ${COLOR_YELLOW}! $SKILL_NAME bereits vorhanden (Stack-Prioritaet) -- uebersprungen${COLOR_NC}"
+      SKILL_SKIP=$((SKILL_SKIP + 1))
+    else
+      cp -r "$SKILL_DIR" "$TARGET"
+      SKILL_COUNT=$((SKILL_COUNT + 1))
+      echo -e "  + $SKILL_NAME"
+    fi
   fi
 done
-echo -e "${COLOR_GREEN}OK $SKILL_COUNT Skills in: $OC_SKILLS${COLOR_NC}"
+echo -e "${COLOR_GREEN}OK $SKILL_COUNT Skills installiert, $SKILL_SKIP uebersprungen: $OC_SKILLS${COLOR_NC}"
 
 # ----------------------------------------------------------------
 # 6. WORKSPACE
