@@ -457,16 +457,27 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
     "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
     -H "Authorization: Bearer ${CF_TOKEN}")
   if echo "$TUNNEL_CONFIG" | jq -e '.success' | grep -q true; then
+    INGRESS_COUNT=$(echo "$TUNNEL_CONFIG" | jq '.result.config.ingress | length')
+    echo -e "  CF Tunnel GET OK -- $INGRESS_COUNT Ingress-Eintraege aktuell"
     if echo "$TUNNEL_CONFIG" | jq -e '.result.config.ingress[] | select(.hostname == "dashboard.beautymolt.com")' > /dev/null 2>&1; then
       echo -e "  v Cloudflare Tunnel bereits vorhanden"
     else
+      # Idempotent rebuild: bestehende Nicht-Catchall-Eintraege behalten +
+      # neuen Eintrag hinzufuegen + Catchall ans Ende.
+      # warp-routing nur aufnehmen wenn nicht null (CF lehnt null-Wert ab).
       NEW_INGRESS=$(echo "$TUNNEL_CONFIG" | jq '
         .result.config.ingress = (
           [.result.config.ingress[] | select(.hostname != null and .service != "http_status:404")] +
           [{"hostname": "dashboard.beautymolt.com", "service": "http://nginx:80"}] +
           [{"service": "http_status:404"}]
         )
-        | {config: {ingress: .result.config.ingress, "warp-routing": .result.config["warp-routing"]}}
+        | {config: (
+            {ingress: .result.config.ingress} +
+            if .result.config["warp-routing"] != null
+            then {"warp-routing": .result.config["warp-routing"]}
+            else {}
+            end
+          )}
       ')
       PUT_RESULT=$(curl -s -X PUT \
         "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${CF_TUNNEL_ID}/configurations" \
@@ -475,9 +486,14 @@ if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT_ID" ] && [ -n "$CF_TUNNEL_ID" ]; then
       if echo "$PUT_RESULT" | jq -e '.success' | grep -q true; then
         echo -e "  ${COLOR_GREEN}+ Cloudflare Tunnel hinzugefuegt${COLOR_NC}"
       else
-        echo -e "  ${COLOR_YELLOW}! Cloudflare Tunnel Update fehlgeschlagen${COLOR_NC}"
+        CF_ERR=$(echo "$PUT_RESULT" | jq -r '.errors[0].message // "unbekannt"')
+        echo -e "  ${COLOR_RED}! Cloudflare Tunnel Update fehlgeschlagen: $CF_ERR${COLOR_NC}"
+        echo -e "  ${COLOR_YELLOW}  Details: $(echo "$PUT_RESULT" | jq -c '.errors // .')${COLOR_NC}"
       fi
     fi
+  else
+    CF_GET_ERR=$(echo "$TUNNEL_CONFIG" | jq -r '.errors[0].message // "Antwort ungueltig oder kein JSON"' 2>/dev/null || echo "curl-Fehler")
+    echo -e "  ${COLOR_RED}! CF Tunnel GET fehlgeschlagen: $CF_GET_ERR${COLOR_NC}"
   fi
 else
   echo -e "  ${COLOR_YELLOW}! CF Variablen fehlen -- Tunnel manuell konfigurieren${COLOR_NC}"
