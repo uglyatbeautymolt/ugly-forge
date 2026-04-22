@@ -1,8 +1,8 @@
+// Nur 2 Top-Level-Tabs — Live Monitor und Scrum Board sind
+// per-Projekt-Views und werden über Buttons in ProjectsView geöffnet.
 const TABS = [
-  { id: 'live', label: 'Live Monitor', icon: '◉' },
-  { id: 'scrum', label: 'Scrum Board', icon: '⬡' },
   { id: 'projects', label: 'Projekte', icon: '◫' },
-  { id: 'team', label: 'Team', icon: '◈' },
+  { id: 'team',     label: 'Team',     icon: '◈' },
 ];
 
 export default function Nav({ active, onChange }) {

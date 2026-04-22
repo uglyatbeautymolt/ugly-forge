@@ -19,7 +19,7 @@ function fileIcon(name, isDir) {
 
 function isImage(name) { return /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(name); }
 
-export default function ProjectsView({ projects, tasks }) {
+export default function ProjectsView({ projects, tasks, onOpenProject }) {
   const [openProject, setOpenProject] = useState(null);
 
   if (!projects || projects.length === 0) {
@@ -41,13 +41,14 @@ export default function ProjectsView({ projects, tasks }) {
           tasks={(tasks || []).filter(t => t.project_id === project.id)}
           isOpen={openProject === project.id}
           onToggle={() => setOpenProject(openProject === project.id ? null : project.id)}
+          onOpenProject={onOpenProject}
         />
       ))}
     </div>
   );
 }
 
-function ProjectCard({ project, tasks, isOpen, onToggle }) {
+function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
   const [files, setFiles] = useState([]);
   const [noFiles, setNoFiles] = useState(false);
   const [expanded, setExpanded] = useState({});
@@ -59,7 +60,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
     ? Math.round((project.tasks_done / project.tasks_total) * 100) : 0;
   const budgetPct = project.budget_estimated > 0
     ? Math.min(100, Math.round((project.budget_used / project.budget_estimated) * 100)) : 0;
-  const budgetOk = budgetPct < 80;
+  const budgetOk   = budgetPct < 80;
   const budgetWarn = budgetPct >= 80 && budgetPct < 100;
   const tasksByStatus = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
 
@@ -107,16 +108,55 @@ function ProjectCard({ project, tasks, isOpen, onToggle }) {
     setLoadingFile(false);
   }, [expanded]);
 
+  // Button-Style helper
+  const btnStyle = (accent) => ({
+    background: 'none',
+    border: `1px solid ${accent}44`,
+    color: accent,
+    borderRadius: '5px',
+    padding: '3px 10px',
+    fontSize: '11px',
+    cursor: 'pointer',
+    fontFamily: 'var(--mono)',
+    transition: 'background 0.12s',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  });
+
   return (
     <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-      <div onClick={onToggle} style={{ padding: '1.25rem', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', borderBottom: isOpen ? '1px solid var(--border)' : 'none' }}>
+      <div
+        onClick={onToggle}
+        style={{ padding: '1.25rem', cursor: 'pointer', display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', borderBottom: isOpen ? '1px solid var(--border)' : 'none' }}
+      >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: project.status === 'deployed' ? 'var(--green)' : project.status === 'developing' ? 'var(--blue)' : project.status === 'planning' ? 'var(--text3)' : 'var(--amber)' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, background: project.status === 'deployed' ? 'var(--green)' : project.status === 'developing' ? 'var(--blue)' : project.status === 'planning' ? 'var(--text3)' : 'var(--amber)' }} />
             <span style={{ fontWeight: 500, fontSize: '15px' }}>{project.name}</span>
             <span style={{ fontSize: '11px', color: 'var(--text3)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--mono)' }}>{project.status}</span>
             <span style={{ fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)', opacity: 0.5 }}>{slug}/</span>
-            <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text3)' }}>{isOpen ? '▲' : '▼'}</span>
+            {/* Live + Scrum Buttons — öffnen Singleton-Views in App */}
+            <div
+              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                style={btnStyle('var(--accent)')}
+                onClick={() => onOpenProject?.(project.id, 'live')}
+                title="Live Monitor für dieses Projekt"
+              >
+                ⬡ Live
+              </button>
+              <button
+                style={btnStyle('var(--blue)')}
+                onClick={() => onOpenProject?.(project.id, 'scrum')}
+                title="Scrum Board für dieses Projekt"
+              >
+                ⊞ Scrum
+              </button>
+              <span style={{ fontSize: '12px', color: 'var(--text3)', paddingLeft: '4px' }}>{isOpen ? '▲' : '▼'}</span>
+            </div>
           </div>
           {project.github_repo && (
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '10px', fontFamily: 'var(--mono)' }}>github.com/{project.github_repo}</div>

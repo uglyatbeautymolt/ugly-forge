@@ -3,9 +3,8 @@ import { AGENTS, PIPELINE_CONNECTIONS, CONN_COLORS, CONN_LABELS } from '../confi
 
 const W = 780;
 const H = 520;
-const R = 32; // Knoten-Radius
+const R = 32;
 
-// Hilfsfunktion: Kantenpunkt auf Kreisrand berechnen
 function edgePts(from, to, offset = 0) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -21,15 +20,15 @@ function edgePts(from, to, offset = 0) {
   };
 }
 
-export default function LiveMonitor({ agents, communications, tasks }) {
+// Singleton-Komponente — wird von App.jsx mit pro-Projekt-gefilterten
+// communications + tasks befüttert. Kein eigener Projekt-State.
+export default function LiveMonitor({ agents, communications, tasks, project, onBack }) {
   const [selected, setSelected] = useState(null);
   const agentMap = Object.fromEntries((agents || []).map(a => [a.id, a]));
   const nodeMap  = Object.fromEntries(AGENTS.map(a => [a.id, a]));
 
-  // Letzte 20 Kommunikationen (live)
   const recent = (communications || []).slice(0, 20);
 
-  // Aktive Live-Verbindungen (letzte 5 Min)
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
   const liveLinks = useMemo(() => {
     const links = [];
@@ -41,7 +40,6 @@ export default function LiveMonitor({ agents, communications, tasks }) {
     return links;
   }, [recent]);
 
-  // Adjazenz: welche Verbindungen gehören zu welchem Knoten
   const adjacency = useMemo(() => {
     const adj = {};
     AGENTS.forEach(a => { adj[a.id] = new Set(); });
@@ -68,19 +66,29 @@ export default function LiveMonitor({ agents, communications, tasks }) {
 
   return (
     <div className="fade-in">
+      {/* Zurück-Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.25rem' }}>
+        <button
+          onClick={onBack}
+          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', color: 'var(--text2)', fontSize: '12px', fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: '5px' }}
+        >
+          ← Projekte
+        </button>
+        {project && (
+          <>
+            <span style={{ color: 'var(--border)', fontSize: '16px' }}>/</span>
+            <span style={{ fontWeight: 500, fontSize: '14px' }}>{project.name}</span>
+            <span style={{ fontSize: '11px', color: 'var(--text3)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--mono)' }}>{project.status}</span>
+          </>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>LIVE MONITOR</span>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1.5rem' }}>
 
         {/* Netzwerk-Graph */}
-        <div style={{
-          background: 'var(--bg2)',
-          border: '1px solid var(--border)',
-          borderRadius: '12px',
-          padding: '1.5rem',
-          overflow: 'hidden'
-        }}>
-          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '1rem', fontFamily: 'var(--mono)' }}>
-            AGENTEN-NETZWERK
-          </div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', overflow: 'hidden' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '1rem', fontFamily: 'var(--mono)' }}>AGENTEN-NETZWERK</div>
 
           <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto' }}>
             <defs>
@@ -91,16 +99,11 @@ export default function LiveMonitor({ agents, communications, tasks }) {
                     strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </marker>
               ))}
-              {/* Live-Marker (heller) */}
-              <marker id="arr-live-blue"  viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M2 1L8 5L2 9" fill="none" stroke="var(--blue)"  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
-              <marker id="arr-live-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M2 1L8 5L2 9" fill="none" stroke="var(--amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
-              <marker id="arr-live-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M2 1L8 5L2 9" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
+              <marker id="arr-live-blue"  viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="var(--blue)"  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
+              <marker id="arr-live-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="var(--amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
+              <marker id="arr-live-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></marker>
             </defs>
 
-            {/* ── Ebene 1: Pipeline-Strukturverbindungen (immer sichtbar, gedimmt) ── */}
             {PIPELINE_CONNECTIONS.map((conn, i) => {
               const from = nodeMap[conn.from];
               const to   = nodeMap[conn.to];
@@ -123,18 +126,14 @@ export default function LiveMonitor({ agents, communications, tasks }) {
               );
             })}
 
-            {/* ── Ebene 2: Live-Kommunikation (leuchtet drüber auf) ── */}
             {liveLinks.map((link, i) => {
               const from = nodeMap[link.from];
               const to   = nodeMap[link.to];
               if (!from || !to) return null;
               const p = edgePts(from, to);
               if (!p) return null;
-              const liveColor = link.commType === 'question' ? 'var(--amber)'
-                : link.commType === 'answer'   ? 'var(--cyan)'
-                : 'var(--blue)';
-              const markerId = link.commType === 'question' ? 'arr-live-amber'
-                : 'arr-live-blue';
+              const liveColor = link.commType === 'question' ? 'var(--amber)' : link.commType === 'answer' ? 'var(--cyan)' : 'var(--blue)';
+              const markerId  = link.commType === 'question' ? 'arr-live-amber' : 'arr-live-blue';
               return (
                 <line key={`live-${i}`}
                   x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2}
@@ -148,7 +147,6 @@ export default function LiveMonitor({ agents, communications, tasks }) {
               );
             })}
 
-            {/* ── Ebene 3: Agenten-Knoten ── */}
             {AGENTS.map(agent => {
               const status   = agentMap[agent.id];
               const isActive = status?.active || false;
@@ -156,115 +154,54 @@ export default function LiveMonitor({ agents, communications, tasks }) {
               const isSelected   = selected === agent.id;
               const isConnected  = selected && connectedNodes.has(agent.id) && !isSelected;
               const isDimmedNode = selected && !connectedNodes.has(agent.id);
-
               return (
-                <g key={agent.id}
-                  onClick={() => handleNodeClick(agent.id)}
-                  style={{ cursor: 'pointer' }}
-                >
-                  {/* Glow bei aktivem Agent */}
-                  {isActive && (
-                    <circle cx={agent.x} cy={agent.y} r={R + 10}
-                      fill="var(--accent)" opacity="0.08" className="pulse" />
-                  )}
-                  {/* Selektion-Ring */}
-                  {isSelected && (
-                    <circle cx={agent.x} cy={agent.y} r={R + 5}
-                      fill="none" stroke="white" strokeWidth="1.5" opacity="0.3" />
-                  )}
-                  {/* Haupt-Kreis */}
+                <g key={agent.id} onClick={() => handleNodeClick(agent.id)} style={{ cursor: 'pointer' }}>
+                  {isActive && (<circle cx={agent.x} cy={agent.y} r={R + 10} fill="var(--accent)" opacity="0.08" className="pulse" />)}
+                  {isSelected && (<circle cx={agent.x} cy={agent.y} r={R + 5} fill="none" stroke="white" strokeWidth="1.5" opacity="0.3" />)}
                   <circle cx={agent.x} cy={agent.y} r={R}
                     fill={isSelected ? 'var(--bg3)' : isActive ? 'var(--bg3)' : 'var(--bg2)'}
-                    stroke={
-                      isSelected   ? 'white'
-                    : isConnected  ? 'var(--text2)'
-                    : isActive     ? 'var(--accent)'
-                    : 'var(--border2)'
-                    }
+                    stroke={isSelected ? 'white' : isConnected ? 'var(--text2)' : isActive ? 'var(--accent)' : 'var(--border2)'}
                     strokeWidth={isSelected || isActive ? 1.8 : 1}
                     opacity={isDimmedNode ? 0.18 : 1}
                     style={{ transition: 'opacity 0.2s' }}
                   />
-                  {/* Emoji */}
-                  <text x={agent.x} y={agent.y - 4}
-                    textAnchor="middle" dominantBaseline="middle"
-                    fontSize="17"
-                    opacity={isDimmedNode ? 0.2 : 1}
-                    style={{ transition: 'opacity 0.2s' }}
-                  >{agent.emoji}</text>
-                  {/* Label */}
-                  <text x={agent.x} y={agent.y + 15}
-                    textAnchor="middle"
-                    fontSize="9"
-                    fontFamily="var(--font)"
-                    fill={isActive ? 'var(--text)' : 'var(--text3)'}
-                    opacity={isDimmedNode ? 0.2 : 1}
-                    style={{ transition: 'opacity 0.2s' }}
-                  >{agent.label}</text>
-                  {/* Task-Indikator */}
-                  {hasTask && (
-                    <circle cx={agent.x + R - 4} cy={agent.y - R + 4}
-                      r="5" fill="var(--blue)" className="pulse" />
-                  )}
+                  <text x={agent.x} y={agent.y - 4} textAnchor="middle" dominantBaseline="middle" fontSize="17" opacity={isDimmedNode ? 0.2 : 1} style={{ transition: 'opacity 0.2s' }}>{agent.emoji}</text>
+                  <text x={agent.x} y={agent.y + 15} textAnchor="middle" fontSize="9" fontFamily="var(--font)" fill={isActive ? 'var(--text)' : 'var(--text3)'} opacity={isDimmedNode ? 0.2 : 1} style={{ transition: 'opacity 0.2s' }}>{agent.label}</text>
+                  {hasTask && (<circle cx={agent.x + R - 4} cy={agent.y - R + 4} r="5" fill="var(--blue)" className="pulse" />)}
                 </g>
               );
             })}
           </svg>
 
-          {/* Info-Zeile bei Selektion */}
           {selected && (() => {
             const node = nodeMap[selected];
             return node ? (
-              <div style={{
-                marginTop: '8px', padding: '8px 12px',
-                background: 'var(--bg3)', borderRadius: '6px',
-                fontSize: '11px', color: 'var(--text2)',
-                display: 'flex', alignItems: 'center', gap: '8px'
-              }}>
+              <div style={{ marginTop: '8px', padding: '8px 12px', background: 'var(--bg3)', borderRadius: '6px', fontSize: '11px', color: 'var(--text2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '14px' }}>{node.emoji}</span>
                 <span style={{ fontWeight: 500 }}>{node.label}</span>
                 <span style={{ color: 'var(--text3)' }}>—</span>
                 <span>{node.phase}</span>
-                <span style={{
-                  marginLeft: 'auto', fontFamily: 'var(--mono)',
-                  fontSize: '10px', color: 'var(--text3)'
-                }}>{node.model}</span>
+                <span style={{ marginLeft: 'auto', fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--text3)' }}>{node.model}</span>
               </div>
             ) : null;
           })()}
 
-          {/* Legende */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginTop: selected ? '8px' : '12px', fontSize: '11px', color: 'var(--text3)' }}>
             {Object.entries(CONN_COLORS).map(([type, color]) => (
               <span key={type} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <svg width="18" height="8">
-                  <line x1="0" y1="4" x2="18" y2="4" stroke={color} strokeWidth="1.5"
-                    strokeDasharray={type === 'retro' ? '4 2' : 'none'} />
-                </svg>
+                <svg width="18" height="8"><line x1="0" y1="4" x2="18" y2="4" stroke={color} strokeWidth="1.5" strokeDasharray={type === 'retro' ? '4 2' : 'none'} /></svg>
                 {CONN_LABELS[type]}
               </span>
             ))}
           </div>
         </div>
 
-        {/* Rechte Spalte: Kommunikations-Log */}
-        <div style={{
-          background: 'var(--bg2)',
-          border: '1px solid var(--border)',
-          borderRadius: '12px',
-          padding: '1.5rem',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '1rem', fontFamily: 'var(--mono)' }}>
-            KOMMUNIKATIONS-LOG
-          </div>
+        {/* Kommunikations-Log */}
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.5rem', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '1rem', fontFamily: 'var(--mono)' }}>KOMMUNIKATIONS-LOG</div>
           <div style={{ flex: 1, overflow: 'auto' }}>
             {recent.length === 0 ? (
-              <div style={{ color: 'var(--text3)', fontSize: '13px', textAlign: 'center', paddingTop: '2rem' }}>
-                Noch keine Kommunikation
-              </div>
+              <div style={{ color: 'var(--text3)', fontSize: '13px', textAlign: 'center', paddingTop: '2rem' }}>Noch keine Kommunikation</div>
             ) : (
               recent.map((c, i) => <CommEntry key={i} comm={c} />)
             )}
@@ -273,12 +210,7 @@ export default function LiveMonitor({ agents, communications, tasks }) {
       </div>
 
       {/* Agenten-Status-Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-        gap: '8px',
-        marginTop: '1.5rem'
-      }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px', marginTop: '1.5rem' }}>
         {AGENTS.map(agent => {
           const status   = agentMap[agent.id];
           const isActive = status?.active || false;
@@ -287,29 +219,14 @@ export default function LiveMonitor({ agents, communications, tasks }) {
           return (
             <div key={agent.id}
               onClick={() => handleNodeClick(agent.id)}
-              style={{
-                background: 'var(--bg2)',
-                border: `1px solid ${isActive ? 'var(--accent)' : selected === agent.id ? 'var(--text2)' : 'var(--border)'}`,
-                borderRadius: '8px',
-                padding: '10px 12px',
-                opacity: isActive ? 1 : 0.65,
-                cursor: 'pointer',
-              }}
+              style={{ background: 'var(--bg2)', border: `1px solid ${isActive ? 'var(--accent)' : selected === agent.id ? 'var(--text2)' : 'var(--border)'}`, borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.65, cursor: 'pointer' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                 <span style={{ fontSize: '14px' }}>{agent.emoji}</span>
                 <span style={{ fontSize: '12px', fontWeight: 500 }}>{agent.label}</span>
-                {isActive && (
-                  <span style={{
-                    marginLeft: 'auto', width: '6px', height: '6px',
-                    borderRadius: '50%', background: 'var(--green)',
-                    animation: 'pulse 2s infinite'
-                  }} />
-                )}
+                {isActive && (<span style={{ marginLeft: 'auto', width: '6px', height: '6px', borderRadius: '50%', background: 'var(--green)', animation: 'pulse 2s infinite' }} />)}
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-                {agent.model}
-              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{agent.model}</div>
               {tokens > 0 && (
                 <div style={{ fontSize: '10px', color: 'var(--text2)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
                   {tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : tokens} tok · ${cost.toFixed(3)}
@@ -330,36 +247,21 @@ function CommEntry({ comm }) {
     announce:   'var(--green)',
     answer:     'var(--cyan)',
   }[comm.type] || 'var(--text3)';
-
-  const time = new Date(comm.created_at).toLocaleTimeString('de-DE', {
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-
+  const time = new Date(comm.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   return (
     <div style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
       <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '3px' }}>
-        <span style={{
-          padding: '1px 6px', borderRadius: '3px',
-          background: typeColor + '22', color: typeColor,
-          fontSize: '10px', fontFamily: 'var(--mono)'
-        }}>{comm.type}</span>
+        <span style={{ padding: '1px 6px', borderRadius: '3px', background: typeColor + '22', color: typeColor, fontSize: '10px', fontFamily: 'var(--mono)' }}>{comm.type}</span>
         <span style={{ color: 'var(--text2)' }}>{shortId(comm.from_agent)}</span>
         <span style={{ color: 'var(--text3)' }}>→</span>
         <span style={{ color: 'var(--text2)' }}>{shortId(comm.to_agent)}</span>
         <span style={{ marginLeft: 'auto', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{time}</span>
       </div>
       {comm.message && (
-        <div style={{
-          color: 'var(--text3)', paddingLeft: '2px',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-        }}>
-          {comm.message}
-        </div>
+        <div style={{ color: 'var(--text3)', paddingLeft: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{comm.message}</div>
       )}
     </div>
   );
 }
 
-function shortId(id) {
-  return id?.replace('forge-', '') || '?';
-}
+function shortId(id) { return id?.replace('forge-', '') || '?'; }
