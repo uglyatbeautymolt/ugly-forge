@@ -436,7 +436,8 @@ DASHBOARD_NGINX='server {
     listen 80;
     server_name dashboard.beautymolt.com;
     location / {
-        proxy_pass http://forge-dashboard:3001;
+        set $upstream http://forge-dashboard:3001;
+        proxy_pass $upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
