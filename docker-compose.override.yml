@@ -11,6 +11,7 @@ services:
 
   forge-dashboard:
     image: forge-dashboard:latest
+    pull_policy: never
     container_name: forge-dashboard
     restart: unless-stopped
     ports:
