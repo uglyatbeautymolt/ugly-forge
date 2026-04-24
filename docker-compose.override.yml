@@ -14,6 +14,7 @@ services:
       - CF_TOKEN=${CF_TOKEN}
       - CF_ACCOUNT_ID=${CF_ACCOUNT_ID}
       - CF_TUNNEL_ID=${CF_TUNNEL_ID}
+      - CF_ZONE_ID=${CF_ZONE_ID}
       - FORGE_DOMAIN=beautymolt.com
 
   forge-dashboard:

@@ -48,10 +48,10 @@ nginx via Docker-Socket neu laden (kein docker binary nötig):
 exec: curl -s --unix-socket /var/run/docker.sock -X POST "http://localhost/containers/nginx/kill?signal=HUP"
 ```
 
-## Deploy — Cloudflare Tunnel
+## Deploy — Cloudflare Tunnel + DNS
 
-Fügt `[slug].beautymolt.com → http://nginx:80` zum Tunnel hinzu.
-Variablen `$CF_TOKEN`, `$CF_ACCOUNT_ID`, `$CF_TUNNEL_ID` sind im Container verfügbar.
+Zwei Schritte: Tunnel-Ingress + DNS-CNAME. Beide nötig!
+Variablen `$CF_TOKEN`, `$CF_ACCOUNT_ID`, `$CF_TUNNEL_ID`, `$CF_ZONE_ID` sind im Container verfügbar.
 
 ```bash
 exec: python3 << 'PYEOF'
@@ -60,29 +60,43 @@ import json, urllib.request, os, sys
 token      = os.environ['CF_TOKEN']
 account_id = os.environ['CF_ACCOUNT_ID']
 tunnel_id  = os.environ['CF_TUNNEL_ID']
+zone_id    = os.environ['CF_ZONE_ID']
 hostname   = '[slug].beautymolt.com'
-base_url   = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations'
 headers    = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-req  = urllib.request.Request(base_url, headers=headers)
-resp = json.loads(urllib.request.urlopen(req).read())
-if not resp.get('success'):
-    print('CF GET fehlgeschlagen:', resp); sys.exit(1)
+def api(method, url, data=None):
+    body = json.dumps(data).encode() if data else None
+    req  = urllib.request.Request(url, data=body, headers=headers, method=method)
+    return json.loads(urllib.request.urlopen(req).read())
+
+# 1. Tunnel-Ingress hinzufügen
+base = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations'
+resp = api('GET', base)
+if not resp.get('success'): print('CF GET fehlgeschlagen:', resp); sys.exit(1)
 
 ingress = [e for e in resp['result']['config']['ingress']
            if e.get('hostname') and e.get('service') != 'http_status:404'
            and e.get('hostname') != hostname]
 ingress.append({'hostname': hostname, 'service': 'http://nginx:80'})
 ingress.append({'service': 'http_status:404'})
-
 config = {'ingress': ingress}
 if resp['result']['config'].get('warp-routing') is not None:
     config['warp-routing'] = resp['result']['config']['warp-routing']
+r = api('PUT', base, {'config': config})
+print('Tunnel:', 'OK' if r.get('success') else f'FEHLER {r}')
 
-body = json.dumps({'config': config}).encode()
-req2 = urllib.request.Request(base_url, data=body, headers=headers, method='PUT')
-res2 = json.loads(urllib.request.urlopen(req2).read())
-print('OK' if res2.get('success') else f'FEHLER: {res2}')
+# 2. DNS CNAME erstellen (idempotent: erst prüfen ob schon vorhanden)
+dns_base = f'https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records'
+existing = api('GET', f'{dns_base}?type=CNAME&name={hostname}')
+if existing.get('result'):
+    print('DNS: bereits vorhanden')
+else:
+    r2 = api('POST', dns_base, {
+        'type': 'CNAME', 'name': '[slug]',
+        'content': f'{tunnel_id}.cfargotunnel.com',
+        'ttl': 1, 'proxied': True
+    })
+    print('DNS:', 'OK' if r2.get('success') else f'FEHLER {r2}')
 PYEOF
 ```
 
@@ -157,7 +171,7 @@ exec: rm -f /home/node/nginx-conf/[slug].conf
 exec: curl -s --unix-socket /var/run/docker.sock -X POST "http://localhost/containers/nginx/kill?signal=HUP"
 ```
 
-### Teardown Schritt 2 — Cloudflare Tunnel Ingress entfernen
+### Teardown Schritt 2 — Cloudflare Tunnel Ingress + DNS entfernen
 ```bash
 exec: python3 << 'PYEOF'
 import json, urllib.request, os, sys
@@ -165,26 +179,31 @@ import json, urllib.request, os, sys
 token      = os.environ['CF_TOKEN']
 account_id = os.environ['CF_ACCOUNT_ID']
 tunnel_id  = os.environ['CF_TUNNEL_ID']
+zone_id    = os.environ['CF_ZONE_ID']
 hostname   = '[slug].beautymolt.com'
-base_url   = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations'
 headers    = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
 
-req  = urllib.request.Request(base_url, headers=headers)
-resp = json.loads(urllib.request.urlopen(req).read())
-if not resp.get('success'):
-    print('CF GET fehlgeschlagen:', resp); sys.exit(1)
+def api(method, url, data=None):
+    body = json.dumps(data).encode() if data else None
+    req  = urllib.request.Request(url, data=body, headers=headers, method=method)
+    return json.loads(urllib.request.urlopen(req).read())
 
-ingress = [e for e in resp['result']['config']['ingress']
-           if e.get('hostname') != hostname]
-
+# 1. Tunnel-Ingress entfernen
+base = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations'
+resp = api('GET', base)
+ingress = [e for e in resp['result']['config']['ingress'] if e.get('hostname') != hostname]
 config = {'ingress': ingress}
 if resp['result']['config'].get('warp-routing') is not None:
     config['warp-routing'] = resp['result']['config']['warp-routing']
+r = api('PUT', base, {'config': config})
+print('Tunnel:', 'OK - Ingress entfernt' if r.get('success') else f'FEHLER {r}')
 
-body = json.dumps({'config': config}).encode()
-req2 = urllib.request.Request(base_url, data=body, headers=headers, method='PUT')
-res2 = json.loads(urllib.request.urlopen(req2).read())
-print('OK - Ingress entfernt' if res2.get('success') else f'FEHLER: {res2}')
+# 2. DNS CNAME löschen
+dns_base = f'https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records'
+existing = api('GET', f'{dns_base}?type=CNAME&name={hostname}')
+for record in existing.get('result', []):
+    r2 = api('DELETE', f'{dns_base}/{record["id"]}')
+    print('DNS:', 'OK - Record gelöscht' if r2.get('success') else f'FEHLER {r2}')
 PYEOF
 ```
 
