@@ -55,6 +55,8 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileContent, setFileContent] = useState(null);
   const [loadingFile, setLoadingFile] = useState(false);
+  const [teardownPending, setTeardownPending] = useState(false);
+  const [teardownConfirm, setTeardownConfirm] = useState(false);
 
   const progress = project.tasks_total > 0
     ? Math.round((project.tasks_done / project.tasks_total) * 100) : 0;
@@ -65,6 +67,20 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
   const tasksByStatus = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
 
   const slug = project.slug || slugify(project.name);
+  const domain = 'beautymolt.com';
+  const appUrl = `https://${slug}.${domain}`;
+
+  const handleTeardown = async () => {
+    if (!teardownConfirm) { setTeardownConfirm(true); return; }
+    setTeardownConfirm(false);
+    setTeardownPending(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/teardown`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) console.error('Teardown errors:', data.errors);
+    } catch (e) { console.error('Teardown failed:', e); }
+    setTeardownPending(false);
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -132,7 +148,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, background: project.status === 'deployed' ? 'var(--green)' : project.status === 'developing' ? 'var(--blue)' : project.status === 'planning' ? 'var(--text3)' : 'var(--amber)' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, background: project.status === 'deployed' ? 'var(--green)' : project.status === 'developing' ? 'var(--blue)' : project.status === 'planning' ? 'var(--text3)' : project.status === 'archived' ? 'var(--text3)' : 'var(--amber)' }} />
             <span style={{ fontWeight: 500, fontSize: '15px' }}>{project.name}</span>
             <span style={{ fontSize: '11px', color: 'var(--text3)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--mono)' }}>{project.status}</span>
             <span style={{ fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)', opacity: 0.5 }}>{slug}/</span>
@@ -155,6 +171,30 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
               >
                 ⊞ Scrum
               </button>
+              {project.status === 'deployed' && (
+                <>
+                  <button
+                    style={btnStyle('var(--green)')}
+                    onClick={() => window.open(appUrl, '_blank')}
+                    title={`${project.name} öffnen`}
+                  >
+                    ↗ {project.name}
+                  </button>
+                  <button
+                    style={{
+                      ...btnStyle('var(--red)'),
+                      opacity: teardownPending ? 0.5 : 1,
+                      background: teardownConfirm ? '#ff000022' : 'none',
+                      borderColor: teardownConfirm ? 'var(--red)' : '#ff000044',
+                    }}
+                    onClick={handleTeardown}
+                    disabled={teardownPending}
+                    title="nginx + CF Tunnel abbauen, Status auf archived"
+                  >
+                    {teardownPending ? '...' : teardownConfirm ? '✓ Bestätigen' : '↓ Down'}
+                  </button>
+                </>
+              )}
               <span style={{ fontSize: '12px', color: 'var(--text3)', paddingLeft: '4px' }}>{isOpen ? '▲' : '▼'}</span>
             </div>
           </div>
