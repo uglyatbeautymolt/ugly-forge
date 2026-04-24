@@ -210,9 +210,6 @@ if [ ! -f "$OC_CONFIG" ]; then
   cp "$FORGE_JSON" "$OC_CONFIG"
   echo -e "${COLOR_GREEN}OK openclaw.json erstellt (12 Agenten)${COLOR_NC}"
 
-elif grep -q 'forge-orchestrator' "$OC_CONFIG" 2>/dev/null; then
-  echo -e "  v forge-Agenten bereits vorhanden"
-
 else
   BACKUP="${OC_CONFIG}.backup-$(date +%Y%m%d-%H%M%S)"
   cp "$OC_CONFIG" "$BACKUP"
@@ -244,16 +241,23 @@ ex_list = existing['agents'].setdefault('list', [])
 ex_ids  = {a.get('id') for a in ex_list}
 
 added = 0
+updated = 0
 for agent in forge_agents:
     if agent.get('id') not in ex_ids:
         ex_list.append(agent)
         added += 1
+    else:
+        for ex_agent in ex_list:
+            if ex_agent.get('id') == agent.get('id') and 'model' in agent:
+                ex_agent['model'] = agent['model']
+                updated += 1
+                break
 
 with open(config_path, 'w') as f:
     json.dump(existing, f, indent=2, ensure_ascii=False)
     f.write('\n')
 
-print(f"{added} Agenten hinzugefuegt, {len(ex_list)} total")
+print(f"{added} Agenten hinzugefuegt, {updated} Modell-Configs aktualisiert, {len(ex_list)} total")
 PYEOF
 
   python3 "$MERGE_SCRIPT"
