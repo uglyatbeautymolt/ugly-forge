@@ -201,8 +201,10 @@ app.post('/api/projects/:id/teardown', async (req, res) => {
 
   const results = [];
   const errors  = [];
-  const domain  = process.env.FORGE_DOMAIN || 'beautymolt.com';
-  const hostname = `${slug}.${domain}`;
+  const domain   = process.env.FORGE_DOMAIN || 'beautymolt.com';
+  const hostname = project.app_url
+    ? project.app_url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    : `${slug}.${domain}`;
 
   // 1. nginx conf löschen
   try {

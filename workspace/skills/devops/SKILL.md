@@ -144,7 +144,7 @@ exec: sed -i 's/Status: testing/Status: deployed/' [pfad]/FORGE-INDEX.md
 ## SQLite Update
 ```bash
 exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-devops' AND project_id='[id]' AND status='running';"
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='deployed' WHERE id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='deployed', app_url='https://[slug].beautymolt.com', updated_at=CURRENT_TIMESTAMP WHERE id='[id]';"
 ```
 
 ## Announce
@@ -164,6 +164,13 @@ Trigger-Beispiele: "Projekt X abschalten", "Color Blink decommissionen", "Teardo
 ### Wann wird zurückgebaut?
 - Explizite Nutzer-Anfrage via Telegram/Orchestrator
 - NICHT automatisch — jedes Projekt läuft bis es explizit abgeschaltet wird
+
+### Teardown Schritt 0 — app_url aus DB lesen
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "SELECT app_url FROM projects WHERE id='[id]';"
+```
+Ergebnis speichern — daraus Hostname extrahieren (z.B. `colorblink.beautymolt.com` aus `https://colorblink.beautymolt.com`).
+Alle folgenden Schritte nutzen diesen Hostname, NICHT `[slug].beautymolt.com`.
 
 ### Teardown Schritt 1 — nginx Conf entfernen
 ```bash

@@ -67,8 +67,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
   const tasksByStatus = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
 
   const slug = project.slug || slugify(project.name);
-  const domain = 'beautymolt.com';
-  const appUrl = `https://${slug}.${domain}`;
+  const appUrl = project.app_url || `https://${slug}.beautymolt.com`;
 
   const handleTeardown = async () => {
     if (!teardownConfirm) { setTeardownConfirm(true); return; }

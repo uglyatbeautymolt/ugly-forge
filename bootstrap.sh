@@ -361,9 +361,10 @@ CREATE TABLE IF NOT EXISTS communications (
 );
 SQL
 
-# Migration: slug Spalte idempotent (|| true verhindert Abbruch bei set -e)
+# Migration: Spalten idempotent hinzufügen
 sqlite3 "$FORGE_DB_DIR/projects.db" "ALTER TABLE projects ADD COLUMN slug TEXT;" 2>/dev/null || true
-echo -e "  v slug Spalte OK"
+sqlite3 "$FORGE_DB_DIR/projects.db" "ALTER TABLE projects ADD COLUMN app_url TEXT;" 2>/dev/null || true
+echo -e "  v slug + app_url Spalten OK"
 
 # Fehlende Slugs generieren
 sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
