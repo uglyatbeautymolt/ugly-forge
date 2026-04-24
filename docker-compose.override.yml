@@ -8,6 +8,13 @@ services:
   openclaw:
     volumes:
       - /home/alex/ugly-forge/db:/home/node/forge-db
+      - /home/alex/ugly-stack/nginx/conf.d:/home/node/nginx-conf
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CF_TOKEN=${CF_TOKEN}
+      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID}
+      - CF_TUNNEL_ID=${CF_TUNNEL_ID}
+      - FORGE_DOMAIN=beautymolt.com
 
   forge-dashboard:
     image: forge-dashboard:latest

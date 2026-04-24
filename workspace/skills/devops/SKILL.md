@@ -1,19 +1,99 @@
 ---
 name: forge_devops
-description: "Deployment, nginx-Konfiguration, Release-Tags und .env.gpg Verschluesselung via openpgp.js. Kein Deploy ohne QA-Freigabe. Aktiviert bei: deployen, release, nginx konfigurieren, deployment, CI/CD."
+description: "Deployment, nginx-Konfiguration, Cloudflare Tunnel, Release-Tags und .env.gpg Verschluesselung via openpgp.js. Kein Deploy ohne QA-Freigabe. Aktiviert bei: deployen, release, nginx konfigurieren, deployment, CI/CD, teardown, abschalten."
 ---
 
 # DevOps Agent — Der Deployer
 
 ## Beim Start
-1. Prüfe FORGE-INDEX.md: Ist QA approved?
-2. Wenn nein: STOPP. QA muss zuerst grünes Licht geben.
+1. Prüfe FORGE-INDEX.md: Ist QA approved? (oder Teardown-Modus?)
+2. Wenn kein QA und kein Teardown: STOPP.
 3. Lese blueprint.md — Deployment-Strategie
 4. `git status` — alles committed?
 5. SQLite Task anlegen (running):
 ```bash
 exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Deployment und Release', 'forge-devops', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
 ```
+
+## Deploy — Docker Compose
+
+Projektverzeichnis: `/home/node/.openclaw/workspace/projects/[slug]/`
+
+Die docker-compose.yml liegt im Projektordner und wird vom DevOps-Agent erstellt.
+Container-Namen immer `[slug]-frontend` und `[slug]-backend`.
+
+## Deploy — nginx (pro Projekt eine eigene Datei)
+
+**WICHTIG:** Immer separate Datei `/home/node/nginx-conf/[slug].conf` — niemals `default.conf` editieren.
+
+```bash
+exec: cat > /home/node/nginx-conf/[slug].conf << 'NGINXEOF'
+server {
+    listen 80;
+    server_name [slug].beautymolt.com;
+    location / {
+        set $upstream http://[slug]-frontend:80;
+        proxy_pass $upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+NGINXEOF
+```
+
+nginx via Docker-Socket neu laden (kein docker binary nötig):
+```bash
+exec: curl -s --unix-socket /var/run/docker.sock -X POST "http://localhost/containers/nginx/kill?signal=HUP"
+```
+
+## Deploy — Cloudflare Tunnel
+
+Fügt `[slug].beautymolt.com → http://nginx:80` zum Tunnel hinzu.
+Variablen `$CF_TOKEN`, `$CF_ACCOUNT_ID`, `$CF_TUNNEL_ID` sind im Container verfügbar.
+
+```bash
+exec: python3 << 'PYEOF'
+import json, urllib.request, os, sys
+
+token      = os.environ['CF_TOKEN']
+account_id = os.environ['CF_ACCOUNT_ID']
+tunnel_id  = os.environ['CF_TUNNEL_ID']
+hostname   = '[slug].beautymolt.com'
+base_url   = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations'
+headers    = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+req  = urllib.request.Request(base_url, headers=headers)
+resp = json.loads(urllib.request.urlopen(req).read())
+if not resp.get('success'):
+    print('CF GET fehlgeschlagen:', resp); sys.exit(1)
+
+ingress = [e for e in resp['result']['config']['ingress']
+           if e.get('hostname') and e.get('service') != 'http_status:404'
+           and e.get('hostname') != hostname]
+ingress.append({'hostname': hostname, 'service': 'http://nginx:80'})
+ingress.append({'service': 'http_status:404'})
+
+config = {'ingress': ingress}
+if resp['result']['config'].get('warp-routing') is not None:
+    config['warp-routing'] = resp['result']['config']['warp-routing']
+
+body = json.dumps({'config': config}).encode()
+req2 = urllib.request.Request(base_url, data=body, headers=headers, method='PUT')
+res2 = json.loads(urllib.request.urlopen(req2).read())
+print('OK' if res2.get('success') else f'FEHLER: {res2}')
+PYEOF
+```
+
+## Deploy — Checkliste
+- [ ] QA: approved
+- [ ] docker-compose.yml im Projektordner vorhanden
+- [ ] Container gestartet und healthy
+- [ ] nginx conf `/home/node/nginx-conf/[slug].conf` geschrieben
+- [ ] nginx reloaded (HUP via Docker-Socket)
+- [ ] Cloudflare Tunnel Ingress gesetzt
+- [ ] URL verifiziert: https://[slug].beautymolt.com
 
 ## Pre-Commit Hook (bei Repo-Init, einmalig)
 ```bash
@@ -30,37 +110,6 @@ fi
 echo "Keine Secrets"
 ```
 
-## .env.gpg (openpgp.js, AES-256)
-```javascript
-const openpgp = require('openpgp');
-const fs = require('fs');
-
-async function encrypt() {
-  const content = fs.readFileSync('.env', 'utf8');
-  const msg = await openpgp.createMessage({ text: content });
-  const encrypted = await openpgp.encrypt({
-    message: msg,
-    passwords: [process.env.PROJEKT_GPG_KEY],
-    config: { preferredSymmetricAlgorithm: openpgp.enums.symmetric.aes256 }
-  });
-  fs.writeFileSync('.env.gpg', encrypted);
-}
-encrypt();
-```
-Kompatibel mit `gpg --decrypt .env.gpg`
-
-## nginx (statische Sites)
-```nginx
-server {
-  listen 80;
-  server_name [subdomain].beautymolt.com;
-  root /var/www/html/[projektname];
-  index index.html;
-  location / { try_files $uri $uri/ /index.html; }
-  gzip on;
-}
-```
-
 ## Release Tag (Octokit, check-before-act)
 ```javascript
 try {
@@ -71,15 +120,6 @@ try {
   }
 }
 ```
-
-## Deployment-Checkliste
-- [ ] QA: approved
-- [ ] Tests gruen
-- [ ] Pre-Commit Hook installiert
-- [ ] .env.gpg erstellt und committed
-- [ ] nginx konfiguriert
-- [ ] Release Tag erstellt
-- [ ] Deployment verifiziert
 
 ## FORGE-INDEX.md Update
 ```bash
@@ -96,14 +136,78 @@ exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='deplo
 ## Announce
 ```
 Deployment abgeschlossen: [Projektname] v[Version]
-URL: [URL]
+URL: https://[slug].beautymolt.com
 Release Tag: v[version]
+```
+
+---
+
+## Teardown
+
+Wird vom Orchestrator aufgerufen wenn der Nutzer ein Projekt abschalten will.
+Trigger-Beispiele: "Projekt X abschalten", "Color Blink decommissionen", "Teardown [slug]"
+
+### Wann wird zurückgebaut?
+- Explizite Nutzer-Anfrage via Telegram/Orchestrator
+- NICHT automatisch — jedes Projekt läuft bis es explizit abgeschaltet wird
+
+### Teardown Schritt 1 — nginx Conf entfernen
+```bash
+exec: rm -f /home/node/nginx-conf/[slug].conf
+exec: curl -s --unix-socket /var/run/docker.sock -X POST "http://localhost/containers/nginx/kill?signal=HUP"
+```
+
+### Teardown Schritt 2 — Cloudflare Tunnel Ingress entfernen
+```bash
+exec: python3 << 'PYEOF'
+import json, urllib.request, os, sys
+
+token      = os.environ['CF_TOKEN']
+account_id = os.environ['CF_ACCOUNT_ID']
+tunnel_id  = os.environ['CF_TUNNEL_ID']
+hostname   = '[slug].beautymolt.com'
+base_url   = f'https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations'
+headers    = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+req  = urllib.request.Request(base_url, headers=headers)
+resp = json.loads(urllib.request.urlopen(req).read())
+if not resp.get('success'):
+    print('CF GET fehlgeschlagen:', resp); sys.exit(1)
+
+ingress = [e for e in resp['result']['config']['ingress']
+           if e.get('hostname') != hostname]
+
+config = {'ingress': ingress}
+if resp['result']['config'].get('warp-routing') is not None:
+    config['warp-routing'] = resp['result']['config']['warp-routing']
+
+body = json.dumps({'config': config}).encode()
+req2 = urllib.request.Request(base_url, data=body, headers=headers, method='PUT')
+res2 = json.loads(urllib.request.urlopen(req2).read())
+print('OK - Ingress entfernt' if res2.get('success') else f'FEHLER: {res2}')
+PYEOF
+```
+
+### Teardown Schritt 3 — Docker Container stoppen
+Die App-Container laufen auf dem Host ausserhalb des OpenClaw-Containers.
+Nutzer informieren (via sessions_send an Orchestrator → Telegram):
+```
+Teardown [Projektname] abgeschlossen:
+- nginx: [slug].conf entfernt, reload OK
+- Cloudflare: Ingress [slug].beautymolt.com entfernt
+- Manuell auf Host: cd [projektpfad] && docker compose down
+```
+
+### Teardown Schritt 4 — SQLite Update
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='archived' WHERE id='[id]';"
 ```
 
 ## Nicht erlaubt
 - Deployment ohne QA-Freigabe
 - .env committen
-- Deployment ohne Rollback-Plan
+- default.conf direkt editieren (immer eigene [slug].conf!)
+- Teardown ohne explizite Nutzer-Bestätigung
 
 ## Commit
 ```
