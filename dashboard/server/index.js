@@ -152,7 +152,7 @@ app.get('/api/agents/status', (req, res) => {
   const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   const status = agents.map(agentId => {
     const recentComm = queryOne('SELECT * FROM communications WHERE (from_agent = ? OR to_agent = ?) AND created_at > ? ORDER BY created_at DESC LIMIT 1', [agentId, agentId, since]);
-    const activeTask = queryOne("SELECT * FROM tasks WHERE agent = ? AND status = 'in_progress' ORDER BY updated_at DESC LIMIT 1", [agentId]);
+    const activeTask = queryOne("SELECT * FROM tasks WHERE agent = ? AND status IN ('in_progress','running') ORDER BY updated_at DESC LIMIT 1", [agentId]);
     const perf = queryOne('SELECT SUM(tokens_input + tokens_output) as tokens, SUM(cost) as cost FROM model_performance WHERE agent = ?', [agentId]);
     return { id: agentId, active: !!recentComm || !!activeTask, lastSeen: recentComm?.created_at || null, activeTask: activeTask || null, totalTokens: perf?.tokens || 0, totalCost: perf?.cost || 0 };
   });
