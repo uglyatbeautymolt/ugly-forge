@@ -61,7 +61,7 @@ SELBST-SCOUT
 
 ## SQLite Logging
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO model_performance (id, agent, model, tier, success, created_at) VALUES ('$(cat /proc/sys/kernel/random/uuid)', 'model-scout', '[model]', 'standard', 1, CURRENT_TIMESTAMP);"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO model_performance (id, agent, model, tier, success, created_at) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), 'model-scout', '[model]', 'standard', 1, CURRENT_TIMESTAMP);"
 ```
 
 ## Beobachtungsfenster

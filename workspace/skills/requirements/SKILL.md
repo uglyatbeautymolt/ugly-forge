@@ -48,7 +48,7 @@ exec: sed -i 's/| forge-requirements | pending/| forge-requirements | done/' /ho
 
 ### Schritt 5: SQLite
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, status) VALUES ('$(cat /proc/sys/kernel/random/uuid)', '[name]', 'requirements');"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, status) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[name]', 'requirements');"
 ```
 
 ### Schritt 6: Announce an Orchestrator

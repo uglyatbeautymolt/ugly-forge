@@ -70,13 +70,13 @@ Stufe 3: Telegram-Nachricht an Nutzer mit 3 Optionen
 ## SQLite Zugriff (DB-Pfad im Container: /home/node/forge-db/)
 ```bash
 # Projekt erstellen
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, status) VALUES ('$(cat /proc/sys/kernel/random/uuid)', '[name]', 'planning');"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, status) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[name]', 'planning');"
 
 # Task updaten
 exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE id='[id]';"
 
 # Kommunikation loggen
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO communications (id, project_id, from_agent, to_agent, type, message) VALUES ('$(cat /proc/sys/kernel/random/uuid)', '[pid]', 'orchestrator', '[agent]', 'delegation', '[msg]');"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO communications (id, project_id, from_agent, to_agent, type, message) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[pid]', 'orchestrator', '[agent]', 'delegation', '[msg]');"
 ```
 
 ## GitHub Repo-Init (nach Gate 1)
