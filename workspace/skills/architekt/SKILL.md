@@ -10,6 +10,10 @@ description: "Erstellt System-Design, Blueprint und Mermaid-Diagramme. Trifft be
 2. Lese `requirements.md` vollständig
 3. Lese FORGE-INDEX.md — Status von Gate 1?
 4. Gate 1 muss APPROVED sein, sonst stoppen.
+5. SQLite Task anlegen (running):
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Architektur und Blueprint erstellen', 'forge-architekt', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+```
 
 ## Blueprint erstellen
 
@@ -61,7 +65,7 @@ exec: sed -i 's/| forge-architekt | pending/| forge-architekt | done/' [pfad]/FO
 
 ## SQLite Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE agent='architekt' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-architekt' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce

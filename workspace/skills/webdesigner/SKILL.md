@@ -9,6 +9,10 @@ description: "Erstellt Style Guide, Layout-Konzept und UX-Design. Strenge Anti-A
 1. Lese `blueprint.md` vollständig
 2. Lese `requirements.md` — für wen ist das?
 3. Prüfe FORGE-INDEX.md: Ist Architekt fertig?
+4. SQLite Task anlegen (running):
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Style Guide und Design System', 'forge-webdesigner', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+```
 
 ## Anti-AI-Slop Regeln (KRITISCH)
 VERBOTEN:
@@ -59,7 +63,7 @@ exec: sed -i 's/| forge-webdesigner | pending/| forge-webdesigner | done/' [pfad
 
 ## SQLite Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE agent='webdesigner' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-webdesigner' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce

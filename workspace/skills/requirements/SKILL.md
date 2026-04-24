@@ -48,7 +48,8 @@ exec: sed -i 's/| forge-requirements | pending/| forge-requirements | done/' /ho
 
 ### Schritt 5: SQLite
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, status) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[name]', 'requirements');"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, slug, status) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[name]', '[slug]', 'requirements');"
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), (SELECT id FROM projects WHERE slug='[slug]' ORDER BY created_at DESC LIMIT 1), 'Requirements erfassen', 'forge-requirements', 'done', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
 ```
 
 ### Schritt 6: Announce an Orchestrator

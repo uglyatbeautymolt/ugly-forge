@@ -10,6 +10,10 @@ description: "Implementiert UI-Komponenten mit HTML/CSS/JS oder React basierend 
 2. Lese `blueprint.md` — Komponenten-Struktur
 3. Prüfe FORGE-INDEX.md: Ist Webdesigner UND DB fertig?
 4. Bestimme Modus: Statisch oder React?
+5. SQLite Task anlegen (running):
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Frontend implementieren', 'forge-frontend', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+```
 
 ## Modus A: Statisch (HTML + Tailwind CDN)
 Für Landingpages, einfache Sites:
@@ -57,7 +61,7 @@ exec: sed -i 's/| forge-frontend | pending/| forge-frontend | done/' [pfad]/FORG
 
 ## SQLite Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='test' WHERE agent='frontend' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-frontend' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce

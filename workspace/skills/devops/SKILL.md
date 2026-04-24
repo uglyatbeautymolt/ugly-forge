@@ -10,6 +10,10 @@ description: "Deployment, nginx-Konfiguration, Release-Tags und .env.gpg Verschl
 2. Wenn nein: STOPP. QA muss zuerst grünes Licht geben.
 3. Lese blueprint.md — Deployment-Strategie
 4. `git status` — alles committed?
+5. SQLite Task anlegen (running):
+```bash
+exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Deployment und Release', 'forge-devops', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+```
 
 ## Pre-Commit Hook (bei Repo-Init, einmalig)
 ```bash
@@ -85,7 +89,7 @@ exec: sed -i 's/Status: testing/Status: deployed/' [pfad]/FORGE-INDEX.md
 
 ## SQLite Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE agent='devops' AND project_id='[id]';"
+exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-devops' AND project_id='[id]' AND status='running';"
 exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='deployed' WHERE id='[id]';"
 ```
 
