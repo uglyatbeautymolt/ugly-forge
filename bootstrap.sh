@@ -328,20 +328,26 @@ if [ $POSTGRES_READY -eq 0 ]; then
 fi
 echo -e "  v forge-postgres bereit"
 
-# Schema einspielen (idempotent: CREATE TABLE IF NOT EXISTS)
-docker exec -i forge-postgres psql -U forge -d forge < "$FORGE_DIR/forge-db-api/schema.sql" \
-  && echo -e "  v Schema eingespielt" \
-  || echo -e "  ${COLOR_YELLOW}! Schema bereits vorhanden (ok)${COLOR_NC}"
+# Schema einspielen (idempotent: prüfe erst ob Tabellen vorhanden)
+TABLE_COUNT=$(docker exec forge-postgres psql -U forge -d forge -t -c \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' \n')
+if [ "${TABLE_COUNT:-0}" -gt 0 ]; then
+  echo -e "  v Schema bereits vorhanden ($TABLE_COUNT Tabellen, übersprungen)"
+else
+  docker exec -i forge-postgres psql -U forge -d forge < "$FORGE_DIR/forge-db-api/schema.sql" \
+    && echo -e "  v Schema eingespielt" \
+    || { echo -e "  ${COLOR_RED}! Schema import fehlgeschlagen${COLOR_NC}"; exit 1; }
+fi
 
 # forge-db-api Image bauen
 echo -e "  Baue forge-db-api..."
 cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose build forge-db-api 2>&1 | tail -2
 cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose up -d forge-db-api
 
-# Health-Check forge-db-api
+# Health-Check forge-db-api (kein Host-Port, Check via docker exec)
 DB_API_READY=0
 for i in $(seq 1 15); do
-  if curl -sf http://localhost:3002/health > /dev/null 2>&1; then
+  if docker exec forge-db-api curl -sf http://localhost:3002/health > /dev/null 2>&1; then
     DB_API_READY=1
     break
   fi
@@ -538,7 +544,7 @@ else
   echo -e "${COLOR_RED}PostgreSQL:    FEHLER${COLOR_NC}"
 fi
 
-if curl -sf http://localhost:3002/health > /dev/null 2>&1; then
+if docker exec forge-db-api curl -sf http://localhost:3002/health > /dev/null 2>&1; then
   echo -e "${COLOR_GREEN}forge-db-api:  OK${COLOR_NC}"
 else
   echo -e "${COLOR_YELLOW}forge-db-api:  ! nicht erreichbar${COLOR_NC}"
