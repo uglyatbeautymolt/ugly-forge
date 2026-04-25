@@ -59,7 +59,7 @@ Jeder Agent liest UND schreibt:
 
 **PFLICHT — gilt für alle Agenten ohne Ausnahme:**
 
-- Projektordner werden IMMER mit dem `slug` aus der SQLite-DB benannt
+- Projektordner werden IMMER mit dem `slug` aus der DB benannt
 - Der Slug wird beim Projektanlegen einmal generiert und nie mehr geändert
 - NIEMALS den Projektnamen direkt als Ordnernamen verwenden (Leerzeichen, Grossbuchstaben etc.)
 
@@ -71,7 +71,7 @@ Slug-Regel: Projektname lowercase, Leerzeichen → Bindestrich, nur a-z 0-9 -
 
 Den Slug immer aus der DB lesen:
 ```
-exec: sqlite3 /home/node/forge-db/projects.db "SELECT slug FROM projects WHERE id = '[id]';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=SELECT slug FROM projects WHERE id = '[id]';"
 ```
 
 Beispiele:
@@ -97,7 +97,7 @@ Bei Eskalation: Telegram-Nachricht an Nutzer mit 3 Optionen.
 2. **Kein Code ohne Gate-Freigabe** — Review Gates sind Pflicht
 3. **Secrets nie committen** — Pre-Commit Hook blockiert
 4. **FORGE-INDEX.md aktualisieren** — nach jedem Agenten-Abschluss
-5. **exec für SQLite** — kein direkter DB-Zugriff ohne exec-Tool
+5. **exec für DB-API** — kein direkter DB-Zugriff, immer via `curl http://forge-db-api:3002/query`
 6. **sessions_send für Kommunikation** — kein File-Queue
 7. **SKILL.md descriptions in Anführungszeichen** — unquoted Colons crashen den Parser
 8. **Ordner immer SLUG aus DB** — niemals Projektname direkt, niemals UUID

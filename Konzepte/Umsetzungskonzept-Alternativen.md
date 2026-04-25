@@ -19,6 +19,16 @@ Bevor Alternativen bewertet werden können, müssen die funktionalen Anforderung
 7. **Kanal-Integration** — Telegram als nativer Eingangskanal
 8. **State Management** — Sessions bleiben erhalten, Kontext akkumuliert sich
 
+### Bekannte Einschränkungen aus dem Betrieb (April 2026)
+
+Diese Punkte sind bei der Bewertung der Alternativen zu berücksichtigen — sie stellen reale Schwächen des OpenClaw-Ansatzes dar, die jede Alternative von Haus aus besser lösen sollte:
+
+**skillsSnapshot-Problem:** OpenClaw cached Skill-Inhalte beim ersten Session-Start in `sessions.json`. Änderungen an SKILL.md oder AGENTS.md wirken erst nach manuellem Session-Reset — ein erhebliches Betriebsrisiko bei Korrekturen unter laufendem Betrieb.
+
+**Keine erzwungene Registrierungsreihenfolge:** Das Skill-System gibt Agenten Instruktionen, erzwingt aber keine Ausführungsreihenfolge. Der Orchestrator hat in der Praxis die Projekt-Registrierung in der Datenhaltung ausgelassen — was zu vollständiger Dashboard-Unsichtbarkeit führte. Ein kodiertes Orchestrations-System (LangGraph, eigenes SDK) würde diesen Schritt strukturell erzwingen, nicht nur durch Instruktionstext.
+
+**maxSpawnDepth = 2:** Echte Parallelisierung ist nicht möglich. Die Pipeline ist strukturell sequenziell.
+
 Jede Alternative muss diese Anforderungen erfüllen oder begründen, warum ein Teilbereich wegfällt oder anders gelöst wird.
 
 ---
@@ -256,4 +266,4 @@ Der höhere initiale Implementierungsaufwand gegenüber n8n ist gerechtfertigt, 
 
 ---
 
-*Umsetzungskonzept Alternativen | v1.0 | April 2026*
+*Umsetzungskonzept Alternativen | v1.1 | April 2026*

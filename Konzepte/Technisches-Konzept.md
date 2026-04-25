@@ -618,6 +618,29 @@ labels:
 
 Container ohne `ports:`-Mapping sind vom Host aus nicht erreichbar — nur von anderen Containern im selben Netzwerk. Health-Checks für solche Container müssen via `docker exec [container] curl localhost:[port]` erfolgen, nicht via `curl localhost:[port]` auf dem Host.
 
+### skillsSnapshot — Session-Cache bricht Skill-Updates
+
+OpenClaw schreibt beim ersten Start einer Agent-Session den vollständigen Inhalt aller Skills als `skillsSnapshot` in `sessions.json`. Bei jedem Resume dieser Session wird der gecachte Snapshot verwendet — nicht die aktuellen Dateien auf dem Dateisystem. Das bedeutet:
+
+- SKILL.md oder AGENTS.md auf dem Host ändern → aktive Sessions ignorieren die Änderung
+- Fix: `sessions.json` der betroffenen Agenten leeren (`echo "{}" > sessions.json`) → nächster Start erzeugt neuen Snapshot mit aktuellem Stand
+- Betrifft alle Agenten die eine persistente Session haben
+
+### Fehlende Projekt-Registrierung durch den Orchestrator (April 2026)
+
+Der Orchestrator-SKILL.md enthielt keinen `INSERT INTO projects` Schritt beim Projektstart. Die Pipeline lief an — Requirements wurden erfasst, FORGE-INDEX.md wurde erstellt — aber kein DB-Eintrag wurde angelegt. Das Dashboard zeigte nichts, da es ausschliesslich PostgreSQL liest.
+
+**Analyse:** Das SKILL.md des Orchestrators definierte beim Start nur einen `SELECT` (bestehende Projekte lesen) aber keinen `INSERT` (neues Projekt anlegen). Die requirements-SKILL.md hatte zwar ein INSERT-Pattern, wurde aber in dieser Ausführung nicht erreicht, da der Orchestrator vorher abbrach.
+
+**Fix:** Im Orchestrator-SKILL.md wurde ein verpflichtender "Neues Projekt anlegen"-Block ergänzt, der drei Schritte **vor dem Start der Pipeline** vorschreibt:
+1. `INSERT INTO projects ... RETURNING id` → macht Projekt sofort im Dashboard sichtbar
+2. `mkdir` Projektordner
+3. FORGE-INDEX.md mit initialem Status anlegen
+
+Der `RETURNING id` Clause in PostgreSQL liefert die generierte UUID direkt zurück, ohne einen separaten SELECT-Folgeaufruf.
+
+**Weitere Ursache — nginx config Syntaxfehler (April 2026):** Ein doppelt eingefügter `}` in `nginx/conf.d/default.conf` (Zeile 77) brachte nginx in einen Restart-Loop. Alle Domains des VPS waren nicht erreichbar (502). Ursache: bootstrap.sh hatte den Dashboard-nginx-Block doppelt angehängt. Fix: überzählige `}` entfernt, nginx neu gestartet.
+
 ---
 
-*Technisches Konzept ugly-forge | v1.0 | April 2026*
+*Technisches Konzept ugly-forge | v1.1 | April 2026*

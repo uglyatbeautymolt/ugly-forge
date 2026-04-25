@@ -16,6 +16,53 @@ Du koordinierst — du implementierst nie. Du nutzt OC-native Tools für Agent-K
 exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=SELECT * FROM projects ORDER BY created_at DESC LIMIT 5;"
 ```
 
+## Neues Projekt anlegen (PFLICHT vor jedem Start der Pipeline)
+
+Bevor forge-requirements gestartet wird, MÜSSEN diese drei Schritte abgeschlossen sein:
+
+**Schritt 1 — Slug ableiten:**
+Projektname → lowercase, Leerzeichen → Bindestrich, nur a-z 0-9 -
+Beispiel: "DiceRoller DB" → "dice-roller-db"
+
+**Schritt 2 — DB-Eintrag anlegen (macht Projekt im Dashboard sichtbar):**
+```bash
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO projects (id, name, slug, status) VALUES (gen_random_uuid()::text, '[Name]', '[slug]', 'planning') RETURNING id;"
+```
+Die zurückgegebene `id` merken — sie wird für alle weiteren DB-Schreiboperationen benötigt.
+
+**Schritt 3 — Projektordner + FORGE-INDEX.md anlegen:**
+```bash
+exec: mkdir -p /home/node/.openclaw/workspace/projects/[slug]
+exec: cat > /home/node/.openclaw/workspace/projects/[slug]/FORGE-INDEX.md << 'EOF'
+# FORGE-INDEX.md – [Name]
+
+## Projekt-Info
+- **Name:** [Name]
+- **Slug:** [slug]
+- **ID:** [id aus Schritt 2]
+- **Status:** planning
+- **Erstellt:** [YYYY-MM-DD]
+
+## Agenten-Status (sequenziell)
+
+| Agent | Status |
+|-------|--------|
+| forge-requirements | pending |
+| forge-review (Gate 1) | pending |
+| forge-architekt | pending |
+| forge-webdesigner | pending |
+| forge-review (Gate 2) | pending |
+| forge-db | pending |
+| forge-backend | pending |
+| forge-frontend | pending |
+| forge-qa | pending |
+| forge-devops | pending |
+| forge-retro | pending |
+EOF
+```
+
+Erst nach diesen drei Schritten: forge-requirements starten.
+
 ## Agenten-Delegation (OC-konform)
 
 ### Einen Agenten starten
@@ -50,7 +97,7 @@ WICHTIG: Agenten laufen NACHEINANDER mit announce-back:
 ## Impact-Assessment bei Fragen
 Wenn ein Agent via sessions_send eine Frage stellt:
 1. Bewerte: Betrifft das andere Agenten?
-2. Schreibe Entscheidung in FORGE-INDEX.md und SQLite
+2. Schreibe Entscheidung in FORGE-INDEX.md und DB (forge-db-api)
 3. Ja → informiere betroffene Agenten
 4. Nein → Agent klärt direkt
 

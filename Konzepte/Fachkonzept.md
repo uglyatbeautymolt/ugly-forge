@@ -1,6 +1,6 @@
 # ugly-forge — Fachkonzept
 
-**Version 1.1 | April 2026**
+**Version 1.2 | April 2026**
 
 ---
 
@@ -123,7 +123,11 @@ Im ersten Betrieb schrieben alle entwickelten Anwendungen in dieselbe gemeinsame
 
 **Problem 1 — Deployment-Blockade:** Eine fertige Anwendung kann nicht unabhängig deployed werden, wenn ihre Daten in einer gemeinsamen Schmiede-internen Datenbank liegen. Die Anwendung wäre dauerhaft an die Schmiede-Infrastruktur gebunden — auch im produktiven Betrieb auf einem anderen System.
 
-**Problem 2 — fehlende Projektsichtbarkeit:** Ein Projekt das keine Einträge in die Schmiede-Metadaten schreiben konnte (weil die Datenhaltung nicht verfügbar war), war für die Schmiede unsichtbar. Das Dashboard zeigte es nicht. Der Orchestrator wusste nichts davon. Das Projekt hatte stattgefunden — aber die Schmiede hatte kein Gedächtnis daran. Diese Erfahrung unterstreicht: **die Verfügbarkeit der Schmiede-Metadaten ist eine Grundvoraussetzung für jeden Betrieb.**
+**Problem 2 — fehlende Projektsichtbarkeit (Ursache 1):** Ein Projekt das keine Einträge in die Schmiede-Metadaten schreiben konnte (weil die Datenhaltung nicht verfügbar war), war für die Schmiede unsichtbar. Das Dashboard zeigte es nicht. Der Orchestrator wusste nichts davon. Das Projekt hatte stattgefunden — aber die Schmiede hatte kein Gedächtnis daran. Diese Erfahrung unterstreicht: **die Verfügbarkeit der Schmiede-Metadaten ist eine Grundvoraussetzung für jeden Betrieb.**
+
+**Problem 3 — fehlende Projektsichtbarkeit (Ursache 2, April 2026):** Selbst nach Bereitstellung der Datenhaltung blieb das Dashboard leer. Analyse ergab: der Orchestrator-Agent legte keinen DB-Eintrag an, bevor er die Pipeline startete. Requirements wurden erfasst, FORGE-INDEX.md wurde erstellt — aber das Dashboard, das ausschliesslich die Datenhaltung liest, zeigte nichts. Der Eintrag in die Schmiede-Metadaten war im Agenten-Ablauf gar nicht vorgesehen.
+
+**Konsequenz — Registrierungsprinzip:** Ein Projekt existiert für die Schmiede erst dann, wenn es in der Datenhaltung registriert ist. Diese Registrierung ist die **erste Handlung des Orchestrators** — vor jedem anderen Schritt, vor dem Start der Pipeline, vor der Anlage von Dokumenten. Sichtbarkeit im Dashboard ab dem ersten Moment ist kein Nice-to-have, sondern ein Kontrollprinzip: nur registrierte Projekte werden verfolgt, bewertet und abgerechnet.
 
 Aus diesen Erfahrungen entstand die klare Zwei-Ebenen-Trennung:
 
@@ -222,9 +226,10 @@ Das Dashboard gibt jederzeit Überblick über die Schmiede — ohne in den Proze
 - **Commit-First:** Jede Änderung an der Schmiede wird zuerst versioniert, dann auf dem Server eingespielt. Kein manueller Eingriff auf dem VPS.
 - **Keine gemeinsamen Daten zwischen Projekten:** Jedes Projekt ist vollständig isoliert.
 - **Keine Automatisierung ohne Gate:** Kein Schritt der Pipeline, der Ressourcen verbraucht, läuft ohne vorherige Freigabe.
+- **Registrierung vor Pipeline-Start:** Der Orchestrator registriert jedes Projekt in der Datenhaltung — als allererste Handlung, vor dem Start der ersten Agenten. Erst danach wird FORGE-INDEX.md angelegt, erst danach beginnt die Pipeline. Kein Projekt läuft ohne Registrierung.
 - **Dedizierte Dienste statt Workarounds:** Wenn ein Bedarf entsteht (z.B. Datenhaltung für die Agenten), wird ein eigenständiger, spezialisierter Dienst geschaffen. Das Modifizieren bestehender Systeme um einen Bedarf zu erfüllen ist kein akzeptabler Lösungsansatz — es schafft versteckte Abhängigkeiten und zerbrechliche Setups.
 - **Sauberer Neustart in der POC-Phase:** Solange kein schützenswerter Produktivbetrieb besteht, ist ein sauberer Neustart (Deinstallation und Neuaufbau) einer Migration vorzuziehen. Das beweist die Funktionsfähigkeit der Architektur von Null an und verhindert das Weiterschleppen von Altlasten.
 
 ---
 
-*Fachkonzept ugly-forge | v1.1 | April 2026*
+*Fachkonzept ugly-forge | v1.2 | April 2026*
