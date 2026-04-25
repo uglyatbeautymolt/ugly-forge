@@ -22,7 +22,7 @@ function edgePts(from, to, offset = 0) {
 
 // Singleton-Komponente — wird von App.jsx mit pro-Projekt-gefilterten
 // communications + tasks befüttert. Kein eigener Projekt-State.
-export default function LiveMonitor({ agents, communications, tasks, project, onBack }) {
+export default function LiveMonitor({ agents, communications, tasks, project, onBack, onSwitch }) {
   const [selected, setSelected] = useState(null);
   const agentMap = Object.fromEntries((agents || []).map(a => [a.id, a]));
   const nodeMap  = Object.fromEntries(AGENTS.map(a => [a.id, a]));
@@ -82,6 +82,14 @@ export default function LiveMonitor({ agents, communications, tasks, project, on
           </>
         )}
         <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>LIVE MONITOR</span>
+        {onSwitch && (
+          <button
+            onClick={onSwitch}
+            style={{ background: 'none', border: '1px solid var(--blue)44', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', color: 'var(--blue)', fontSize: '12px', fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: '5px' }}
+          >
+            ⊞ Scrum
+          </button>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1.5rem' }}>

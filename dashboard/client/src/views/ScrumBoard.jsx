@@ -4,7 +4,7 @@ const LANES = ['backlog', 'in_progress', 'test', 'approved', 'done', 'blocked'];
 
 // Singleton-Komponente — wird von App.jsx mit pro-Projekt-gefilterten
 // tasks befüttert. Kein eigener Projekt-State.
-export default function ScrumBoard({ tasks, projects, project, onBack }) {
+export default function ScrumBoard({ tasks, projects, project, onBack, onSwitch }) {
   const projectMap = Object.fromEntries((projects || []).map(p => [p.id, p]));
 
   const byLane = LANES.reduce((acc, lane) => {
@@ -30,6 +30,14 @@ export default function ScrumBoard({ tasks, projects, project, onBack }) {
           </>
         )}
         <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)' }}>SCRUM BOARD</span>
+        {onSwitch && (
+          <button
+            onClick={onSwitch}
+            style={{ background: 'none', border: '1px solid var(--accent)44', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', color: 'var(--accent)', fontSize: '12px', fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: '5px' }}
+          >
+            ⬡ Live
+          </button>
+        )}
       </div>
 
       <div style={{

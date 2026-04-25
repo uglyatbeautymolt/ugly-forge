@@ -23,6 +23,10 @@ export default function App() {
     setProjectTab(null);
   }
 
+  function switchTab(tab) {
+    setProjectTab(tab);
+  }
+
   function handleNavChange(nextView) {
     setView(nextView);
     closeProject();
@@ -69,6 +73,7 @@ export default function App() {
             tasks={projectTasks}
             project={selectedProject}
             onBack={closeProject}
+            onSwitch={() => switchTab('scrum')}
           />
         )}
 
@@ -79,6 +84,7 @@ export default function App() {
             projects={data.projects}
             project={selectedProject}
             onBack={closeProject}
+            onSwitch={() => switchTab('live')}
           />
         )}
 

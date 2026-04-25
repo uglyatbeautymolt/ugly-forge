@@ -57,6 +57,8 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
   const [loadingFile, setLoadingFile] = useState(false);
   const [teardownPending, setTeardownPending] = useState(false);
   const [teardownConfirm, setTeardownConfirm] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const progress = project.tasks_total > 0
     ? Math.round((project.tasks_done / project.tasks_total) * 100) : 0;
@@ -79,6 +81,18 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
       if (!data.ok) console.error('Teardown errors:', data.errors);
     } catch (e) { console.error('Teardown failed:', e); }
     setTeardownPending(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) { setDeleteConfirm(true); return; }
+    setDeleteConfirm(false);
+    setDeletePending(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/delete`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) console.error('Delete errors:', data.errors);
+    } catch (e) { console.error('Delete failed:', e); }
+    setDeletePending(false);
   };
 
   useEffect(() => {
@@ -147,7 +161,7 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
       >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, background: project.status === 'deployed' ? 'var(--green)' : project.status === 'developing' ? 'var(--blue)' : project.status === 'planning' ? 'var(--text3)' : project.status === 'archived' ? 'var(--text3)' : 'var(--amber)' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, background: project.status === 'deployed' ? 'var(--green)' : project.status === 'developing' ? 'var(--blue)' : project.status === 'planning' ? 'var(--text3)' : project.status === 'archived' ? 'var(--text3)' : project.status === 'deleted' ? 'var(--red)' : 'var(--amber)' }} />
             <span style={{ fontWeight: 500, fontSize: '15px' }}>{project.name}</span>
             <span style={{ fontSize: '11px', color: 'var(--text3)', background: 'var(--bg4)', padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--mono)' }}>{project.status}</span>
             <span style={{ fontSize: '11px', color: 'var(--text3)', fontFamily: 'var(--mono)', opacity: 0.5 }}>{slug}/</span>
@@ -193,6 +207,21 @@ function ProjectCard({ project, tasks, isOpen, onToggle, onOpenProject }) {
                     {teardownPending ? '...' : teardownConfirm ? '✓ Bestätigen' : '↓ Down'}
                   </button>
                 </>
+              )}
+              {project.status !== 'deleted' && (
+                <button
+                  style={{
+                    ...btnStyle('var(--red)'),
+                    opacity: deletePending ? 0.5 : 1,
+                    background: deleteConfirm ? '#ff000022' : 'none',
+                    borderColor: deleteConfirm ? 'var(--red)' : '#ff000044',
+                  }}
+                  onClick={handleDelete}
+                  disabled={deletePending}
+                  title="Workspace-Dateien löschen, Metadaten bleiben erhalten"
+                >
+                  {deletePending ? '...' : deleteConfirm ? '✓ Löschen?' : '✕ Löschen'}
+                </button>
               )}
               <span style={{ fontSize: '12px', color: 'var(--text3)', paddingLeft: '4px' }}>{isOpen ? '▲' : '▼'}</span>
             </div>

@@ -258,6 +258,33 @@ app.post('/api/projects/:id/teardown', async (req, res) => {
   res.json({ ok: errors.length === 0, results, errors });
 });
 
+app.post('/api/projects/:id/delete', async (req, res) => {
+  const project = await queryOne('SELECT * FROM projects WHERE id = $1', [req.params.id]);
+  if (!project) return res.status(404).json({ error: 'Nicht gefunden' });
+  const slug = project.slug;
+  if (!slug) return res.status(400).json({ error: 'Kein Slug' });
+
+  const results = [];
+  const errors = [];
+
+  // Workspace-Dateien löschen
+  const wsPath = `${WORKSPACE_PATH}/${slug}`;
+  try {
+    fs.rmSync(wsPath, { recursive: true, force: true });
+    results.push(`Workspace ${slug}/ gelöscht`);
+  } catch (e) {
+    (e.code === 'ENOENT' ? results : errors).push(`Workspace: ${e.code === 'ENOENT' ? 'nicht vorhanden (ok)' : e.message}`);
+  }
+
+  // DB: status=deleted, Metadaten bleiben erhalten
+  try {
+    await pool.query("UPDATE projects SET status='deleted', updated_at=NOW() WHERE id=$1", [req.params.id]);
+    results.push('DB: status=deleted');
+  } catch (e) { errors.push(`DB: ${e.message}`); }
+
+  res.json({ ok: errors.length === 0, results, errors });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
