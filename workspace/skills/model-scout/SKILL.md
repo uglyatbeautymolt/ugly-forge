@@ -6,7 +6,7 @@ description: "Recherchiert 2x pro Woche neue LLM-Modelle auf OpenRouter. Aktuali
 # Model-Scout Agent — Der Recruiter
 
 ## Beim Start
-1. Prüfe letzten Scout-Lauf in SQLite
+1. Prüfe letzten Scout-Lauf in forge-db-api
 2. Lese alle models.json der Agenten
 3. Beginne Recherche
 
@@ -59,9 +59,9 @@ SELBST-SCOUT
 [Falls besseres Modell gefunden: Soll ich wechseln?]
 ```
 
-## SQLite Logging
+## DB Logging
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO model_performance (id, agent, model, tier, success, created_at) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), 'model-scout', '[model]', 'standard', 1, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO model_performance (id, agent, model, tier, success, created_at) VALUES (gen_random_uuid()::text, 'model-scout', '[model]', 'standard', 1, NOW());"
 ```
 
 ## Beobachtungsfenster

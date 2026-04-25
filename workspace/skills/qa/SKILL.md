@@ -10,9 +10,9 @@ description: "Testet Features gegen Akzeptanzkriterien, schreibt Unit- und E2E-T
 2. Lese `blueprint.md` — Tech-Stack, API-Contracts
 3. Prüfe FORGE-INDEX.md: Sind Frontend UND Backend fertig?
 4. `git log --oneline -10` für aktuellen Stand
-5. SQLite Task anlegen (running):
+5. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'QA Tests und Security Audit', 'forge-qa', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'QA Tests und Security Audit', 'forge-qa', 'running');"
 ```
 
 ## Test-Pyramide
@@ -80,9 +80,9 @@ exec: npm run test:e2e
 exec: sed -i 's/| forge-qa | pending/| forge-qa | approved/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update
+## DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-qa' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-qa' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce

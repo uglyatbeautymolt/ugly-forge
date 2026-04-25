@@ -11,9 +11,9 @@ Du koordinierst — du implementierst nie. Du nutzt OC-native Tools für Agent-K
 ## Beim Start
 1. Lese `AGENTS.md` für Workspace-Kontext
 2. Prüfe: Gibt es ein aktives Projekt? (FORGE-INDEX.md im Projektordner)
-3. Lese SQLite Status:
+3. Lese DB Status:
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "SELECT * FROM projects ORDER BY created_at DESC LIMIT 5;"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=SELECT * FROM projects ORDER BY created_at DESC LIMIT 5;"
 ```
 
 ## Agenten-Delegation (OC-konform)
@@ -67,16 +67,16 @@ Stufe 2: Task in FORGE-INDEX.md als BLOCKED markieren
 Stufe 3: Telegram-Nachricht an Nutzer mit 3 Optionen
 ```
 
-## SQLite Zugriff (DB-Pfad im Container: /home/node/forge-db/)
+## DB-API Zugriff (forge-db-api:3002)
 ```bash
-# Projekt erstellen
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO projects (id, name, status) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[name]', 'planning');"
+# Projekte anzeigen
+exec: curl -s http://forge-db-api:3002/query?sql=SELECT+*+FROM+projects+ORDER+BY+created_at+DESC+LIMIT+5
 
 # Task updaten
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done' WHERE id='[id]';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done' WHERE id='[id]';"
 
 # Kommunikation loggen
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO communications (id, project_id, from_agent, to_agent, type, message) VALUES (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), '[pid]', 'orchestrator', '[agent]', 'delegation', '[msg]');"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO communications (id, project_id, from_agent, to_agent, type, message) VALUES (gen_random_uuid()::text, '[pid]', 'orchestrator', '[agent]', 'delegation', '[msg]');"
 ```
 
 ## GitHub Repo-Init (nach Gate 1)

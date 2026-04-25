@@ -10,17 +10,127 @@ description: "Deployment, nginx-Konfiguration, Cloudflare Tunnel, Release-Tags u
 2. Wenn kein QA und kein Teardown: STOPP.
 3. Lese blueprint.md — Deployment-Strategie
 4. `git status` — alles committed?
-5. SQLite Task anlegen (running):
+5. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Deployment und Release', 'forge-devops', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'Deployment und Release', 'forge-devops', 'running');"
 ```
+
+## DB-Container Entscheidung
+
+Lese blueprint.md — welcher DB-Typ wurde vom Architekten gewählt?
+
+### Template: PostgreSQL ([slug]-postgres)
+```yaml
+  [slug]-postgres:
+    image: postgres:16-alpine
+    container_name: [slug]-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: [slug]
+      POSTGRES_USER: [slug]
+      POSTGRES_PASSWORD: ${[SLUG]_DB_PASSWORD}
+    volumes:
+      - [slug]-db-data:/var/lib/postgresql/data
+    networks:
+      - ugly-net
+```
+
+### Template: MariaDB ([slug]-mariadb)
+```yaml
+  [slug]-mariadb:
+    image: mariadb:11-jammy
+    container_name: [slug]-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: [slug]
+      MARIADB_USER: [slug]
+      MARIADB_PASSWORD: ${[SLUG]_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${[SLUG]_DB_ROOT_PASSWORD}
+    volumes:
+      - [slug]-db-data:/var/lib/mysql
+    networks:
+      - ugly-net
+```
+
+### Template: Redis ([slug]-redis)
+```yaml
+  [slug]-redis:
+    image: redis:7-alpine
+    container_name: [slug]-redis
+    restart: unless-stopped
+    volumes:
+      - [slug]-redis-data:/data
+    networks:
+      - ugly-net
+```
+
+### Template: SQLite (kein extra Container, Bind-Mount)
+```yaml
+    volumes:
+      - /home/alex/ugly-forge/projects/[slug]/data:/data
+    environment:
+      - DB_PATH=/data/[slug].db
+```
+
+---
 
 ## Deploy — Docker Compose
 
 Projektverzeichnis: `/home/node/.openclaw/workspace/projects/[slug]/`
 
-Die docker-compose.yml liegt im Projektordner und wird vom DevOps-Agent erstellt.
-Container-Namen immer `[slug]-frontend` und `[slug]-backend`.
+**Schritt 1: docker-compose.yml schreiben** — DB-Container aus blueprint.md wählen:
+```bash
+exec: cat > /home/node/.openclaw/workspace/projects/[slug]/docker-compose.yml << 'COMPOSEEOF'
+networks:
+  ugly-net:
+    external: true
+    name: ugly-net
+
+services:
+  # DB-Container hier einfügen (Template oben)
+  # [slug]-postgres ODER [slug]-mariadb ODER [slug]-redis
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: [slug]-frontend
+    restart: unless-stopped
+    networks:
+      - ugly-net
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: [slug]-backend
+    restart: unless-stopped
+    networks:
+      - ugly-net
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://[slug]:${[SLUG]_DB_PASSWORD}@[slug]-postgres:5432/[slug]
+    depends_on:
+      - [slug]-postgres
+
+volumes:
+  [slug]-db-data:
+    name: [slug]-db-data
+COMPOSEEOF
+```
+
+**Schritt 2: Container bauen und starten:**
+```bash
+exec: docker compose -p [slug] -f /home/node/.openclaw/workspace/projects/[slug]/docker-compose.yml up --build -d
+```
+
+**Schritt 3: Warten bis healthy:**
+```bash
+exec: sleep 10 && docker ps --filter "name=[slug]" --format "{{.Names}}: {{.Status}}"
+```
+
+**Nur Frontend (statische Site):** Dateien liegen in `/home/node/www/[slug]/` — kein Docker Compose nötig, nginx serviert direkt.
 
 ## Deploy — nginx (pro Projekt eine eigene Datei)
 
@@ -141,10 +251,10 @@ exec: sed -i 's/| forge-devops | pending/| forge-devops | done/' [pfad]/FORGE-IN
 exec: sed -i 's/Status: testing/Status: deployed/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update
+## DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-devops' AND project_id='[id]' AND status='running';"
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='deployed', app_url='https://[slug].beautymolt.com', updated_at=CURRENT_TIMESTAMP WHERE id='[id]';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-devops' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE projects SET status='deployed', app_url='https://[slug].beautymolt.com', updated_at=NOW() WHERE id='[id]';"
 ```
 
 ## Announce
@@ -167,7 +277,7 @@ Trigger-Beispiele: "Projekt X abschalten", "Color Blink decommissionen", "Teardo
 
 ### Teardown Schritt 0 — app_url aus DB lesen
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "SELECT app_url FROM projects WHERE id='[id]';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=SELECT app_url FROM projects WHERE id='[id]';"
 ```
 Ergebnis speichern — daraus Hostname extrahieren (z.B. `colorblink.beautymolt.com` aus `https://colorblink.beautymolt.com`).
 Alle folgenden Schritte nutzen diesen Hostname, NICHT `[slug].beautymolt.com`.
@@ -224,9 +334,9 @@ Teardown [Projektname] abgeschlossen:
 - Manuell auf Host: cd [projektpfad] && docker compose down
 ```
 
-### Teardown Schritt 4 — SQLite Update
+### Teardown Schritt 4 — DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='archived' WHERE id='[id]';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE projects SET status='archived' WHERE id='[id]';"
 ```
 
 ## Nicht erlaubt

@@ -69,7 +69,6 @@ echo -e "${COLOR_YELLOW}[1/11] Pruefe System-Abhaengigkeiten...${COLOR_NC}"
 require_cmd curl
 require_cmd git
 require_cmd python3
-require_cmd sqlite3
 require_cmd jq
 
 if ! command -v docker &> /dev/null; then
@@ -162,6 +161,17 @@ if ! grep -q "^GITHUB_USERNAME=" "$STACK_ENV"; then
   echo "GITHUB_USERNAME=$GITHUB_USERNAME" >> "$STACK_ENV"
   echo -e "  + GITHUB_USERNAME in .env hinzugefuegt"
 fi
+
+# FORGE_DB_PASSWORD generieren falls nicht vorhanden
+FORGE_DB_PASSWORD=$(grep "^FORGE_DB_PASSWORD=" "$STACK_ENV" | cut -d'=' -f2-)
+if [ -z "$FORGE_DB_PASSWORD" ]; then
+  FORGE_DB_PASSWORD=$(openssl rand -base64 32 | tr -d '/+=\n')
+  echo "FORGE_DB_PASSWORD=$FORGE_DB_PASSWORD" >> "$STACK_ENV"
+  echo -e "  + FORGE_DB_PASSWORD generiert und in .env gespeichert"
+else
+  echo -e "  v FORGE_DB_PASSWORD bereits vorhanden"
+fi
+export FORGE_DB_PASSWORD
 
 # ----------------------------------------------------------------
 # 5. SKILLS
@@ -274,111 +284,15 @@ PYEOF
 fi
 
 # ----------------------------------------------------------------
-# 8. SQLITE DB + SCHEMA MIGRATION + OVERRIDE INSTALLIEREN
+# 8. POSTGRESQL + FORGE-DB-API + OVERRIDE INSTALLIEREN
 # ----------------------------------------------------------------
-echo -e "${COLOR_YELLOW}[8/11] Initialisiere SQLite Datenbank...${COLOR_NC}"
+echo -e "${COLOR_YELLOW}[8/11] Initialisiere PostgreSQL + forge-db-api...${COLOR_NC}"
 
 FORGE_DB_DIR="$FORGE_DIR/db"
 mkdir -p "$FORGE_DB_DIR"
 
-sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  slug TEXT,
-  status TEXT DEFAULT 'planning',
-  github_repo TEXT,
-  budget_estimated REAL DEFAULT 0,
-  budget_used REAL DEFAULT 0,
-  tasks_total INTEGER DEFAULT 0,
-  tasks_done INTEGER DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  title TEXT NOT NULL,
-  agent TEXT NOT NULL,
-  status TEXT DEFAULT 'backlog',
-  cost_estimated REAL DEFAULT 0,
-  cost_real REAL DEFAULT 0,
-  iterations INTEGER DEFAULT 0,
-  user_story TEXT,
-  blocked_reason TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (project_id) REFERENCES projects(id)
-);
-CREATE TABLE IF NOT EXISTS agent_questions (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  from_agent TEXT NOT NULL,
-  to_agent TEXT NOT NULL,
-  depth INTEGER DEFAULT 1,
-  content TEXT NOT NULL,
-  status TEXT DEFAULT 'open',
-  parent_id TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  resolved_at DATETIME
-);
-CREATE TABLE IF NOT EXISTS model_performance (
-  id TEXT PRIMARY KEY,
-  agent TEXT NOT NULL,
-  model TEXT NOT NULL,
-  tier TEXT NOT NULL,
-  project_id TEXT,
-  success INTEGER DEFAULT 1,
-  retry_count INTEGER DEFAULT 0,
-  rate_limit_hit INTEGER DEFAULT 0,
-  quality_score INTEGER,
-  latency_ms INTEGER,
-  tokens_input INTEGER DEFAULT 0,
-  tokens_output INTEGER DEFAULT 0,
-  cost REAL DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS agent_learnings (
-  id TEXT PRIMARY KEY,
-  agent TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  project_name TEXT NOT NULL,
-  problem TEXT NOT NULL,
-  solution TEXT NOT NULL,
-  effect TEXT,
-  status TEXT DEFAULT 'pending',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  confirmed_at DATETIME
-);
-CREATE TABLE IF NOT EXISTS communications (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  from_agent TEXT NOT NULL,
-  to_agent TEXT NOT NULL,
-  type TEXT NOT NULL,
-  message TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-SQL
-
-# Migration: Spalten idempotent hinzufügen
-sqlite3 "$FORGE_DB_DIR/projects.db" "ALTER TABLE projects ADD COLUMN slug TEXT;" 2>/dev/null || true
-sqlite3 "$FORGE_DB_DIR/projects.db" "ALTER TABLE projects ADD COLUMN app_url TEXT;" 2>/dev/null || true
-echo -e "  v slug + app_url Spalten OK"
-
-# Fehlende Slugs generieren
-sqlite3 "$FORGE_DB_DIR/projects.db" <<'SQL'
-UPDATE projects
-SET slug = lower(trim(replace(replace(replace(replace(replace(
-  name, ' ', '-'), '_', '-'), '.', '-'), '/', '-'), '--', '-')))
-WHERE slug IS NULL OR slug = '';
-SQL
-
-echo -e "${COLOR_GREEN}OK SQLite DB + Migrationen: $FORGE_DB_DIR/projects.db${COLOR_NC}"
-
 # docker-compose.override.yml nach $STACK_DIR/ kopieren.
 # Docker Compose laedt sie automatisch wenn sie im selben Verzeichnis liegt.
-# Kein Patching von docker-compose.yml noetig.
 if [ ! -f "$STACK_DIR/docker-compose.override.yml" ] || \
    ! diff -q "$FORGE_DIR/docker-compose.override.yml" "$STACK_DIR/docker-compose.override.yml" > /dev/null 2>&1; then
   cp "$FORGE_DIR/docker-compose.override.yml" "$STACK_DIR/docker-compose.override.yml"
@@ -395,6 +309,53 @@ else
   exit 1
 fi
 
+# forge-postgres starten + warten bis healthy
+echo -e "  Starte forge-postgres..."
+cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose up -d forge-postgres
+
+POSTGRES_READY=0
+for i in $(seq 1 30); do
+  if docker exec forge-postgres pg_isready -U forge -d forge -q 2>/dev/null; then
+    POSTGRES_READY=1
+    break
+  fi
+  sleep 2
+done
+
+if [ $POSTGRES_READY -eq 0 ]; then
+  echo -e "  ${COLOR_RED}! forge-postgres nicht bereit nach 60s${COLOR_NC}"
+  exit 1
+fi
+echo -e "  v forge-postgres bereit"
+
+# Schema einspielen (idempotent: CREATE TABLE IF NOT EXISTS)
+docker exec -i forge-postgres psql -U forge -d forge < "$FORGE_DIR/forge-db-api/schema.sql" \
+  && echo -e "  v Schema eingespielt" \
+  || echo -e "  ${COLOR_YELLOW}! Schema bereits vorhanden (ok)${COLOR_NC}"
+
+# forge-db-api Image bauen
+echo -e "  Baue forge-db-api..."
+cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose build forge-db-api 2>&1 | tail -2
+cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose up -d forge-db-api
+
+# Health-Check forge-db-api
+DB_API_READY=0
+for i in $(seq 1 15); do
+  if curl -sf http://localhost:3002/health > /dev/null 2>&1; then
+    DB_API_READY=1
+    break
+  fi
+  sleep 2
+done
+
+if [ $DB_API_READY -eq 1 ]; then
+  echo -e "  ${COLOR_GREEN}v forge-db-api erreichbar${COLOR_NC}"
+else
+  echo -e "  ${COLOR_YELLOW}! forge-db-api noch nicht erreichbar (Container startet noch)${COLOR_NC}"
+fi
+
+echo -e "${COLOR_GREEN}OK PostgreSQL + forge-db-api${COLOR_NC}"
+
 # ----------------------------------------------------------------
 # 9. DASHBOARD IMAGE BAUEN + STARTEN
 # ----------------------------------------------------------------
@@ -410,6 +371,7 @@ DASH_HASH_OLD=$(cat "$DASH_HASH_FILE" 2>/dev/null || echo "")
 
 if [ "$DASH_HASH_NEW" = "$DASH_HASH_OLD" ] && docker inspect forge-dashboard &>/dev/null; then
   echo -e "  ${COLOR_GREEN}v Dashboard unveraendert -- kein Rebuild noetig${COLOR_NC}"
+  cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose up -d forge-dashboard
 else
   # React-Frontend bauen (client/dist/ wird vom Dockerfile benoetigt)
   echo -e "  Baue React-Frontend..."
@@ -422,7 +384,7 @@ else
   echo -e "  Baue Dashboard-Image..."
   docker build -t forge-dashboard:latest "$FORGE_DIR/dashboard" 2>&1 | tail -3
   docker rm -f forge-dashboard 2>/dev/null || true
-  cd "$STACK_DIR" && docker compose up -d forge-dashboard
+  cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose up -d forge-dashboard
   sleep 3
   echo "$DASH_HASH_NEW" > "$DASH_HASH_FILE"
   echo -e "  + Dashboard neu gebaut und gestartet"
@@ -511,13 +473,37 @@ fi
 echo -e "${COLOR_YELLOW}[11/11] Starte OpenClaw + nginx neu...${COLOR_NC}"
 
 # docker compose ohne -f: laedt docker-compose.yml + docker-compose.override.yml automatisch
-cd "$STACK_DIR" && docker compose up -d openclaw
+cd "$STACK_DIR" && FORGE_DB_PASSWORD="$FORGE_DB_PASSWORD" docker compose up -d openclaw
 cd "$STACK_DIR" && docker compose restart nginx
 sleep 5
 
-docker exec -u 0 openclaw bash -c "command -v sqlite3 || (apt-get update -qq && apt-get install -y -qq sqlite3)" 2>/dev/null \
-  && echo -e "  v sqlite3 im Container vorhanden" \
-  || echo -e "  ${COLOR_YELLOW}! sqlite3 Install fehlgeschlagen${COLOR_NC}"
+docker exec -u 0 openclaw bash -c "command -v docker || (apt-get update -qq && apt-get install -y -qq docker.io)" 2>/dev/null \
+  && echo -e "  v docker CLI im Container vorhanden" \
+  || echo -e "  ${COLOR_YELLOW}! docker CLI Install fehlgeschlagen${COLOR_NC}"
+
+# docker compose plugin (v2) in openclaw installieren
+if ! docker exec openclaw docker compose version &>/dev/null 2>&1; then
+  echo -e "  Installiere docker compose Plugin im Container..."
+  docker exec -u 0 openclaw mkdir -p /usr/local/lib/docker/cli-plugins
+  # Compose-Binary vom Host suchen und rüberkopieren
+  HOST_COMPOSE_BIN=$(ls /usr/libexec/docker/cli-plugins/docker-compose \
+    /usr/lib/docker/cli-plugins/docker-compose \
+    /usr/local/lib/docker/cli-plugins/docker-compose 2>/dev/null | head -1)
+  if [ -n "$HOST_COMPOSE_BIN" ]; then
+    docker cp "$HOST_COMPOSE_BIN" openclaw:/usr/local/lib/docker/cli-plugins/docker-compose
+    docker exec -u 0 openclaw chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+  else
+    # Fallback: von GitHub laden (Host braucht curl)
+    COMPOSE_TMP=$(mktemp)
+    curl -sSL "https://github.com/docker/compose/releases/download/v2.27.1/docker-compose-linux-x86_64" -o "$COMPOSE_TMP"
+    docker cp "$COMPOSE_TMP" openclaw:/usr/local/lib/docker/cli-plugins/docker-compose
+    docker exec -u 0 openclaw chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    rm -f "$COMPOSE_TMP"
+  fi
+fi
+docker exec openclaw docker compose version &>/dev/null 2>&1 \
+  && echo -e "  v docker compose Plugin im Container vorhanden" \
+  || echo -e "  ${COLOR_YELLOW}! docker compose Plugin nicht gefunden${COLOR_NC}"
 
 unset GITHUB_TOKEN
 unset PROJEKT_GPG_KEY
@@ -529,7 +515,8 @@ echo -e "${COLOR_GREEN}==========================================${COLOR_NC}"
 echo ""
 echo -e "GitHub User:   $GITHUB_USERNAME"
 echo -e "Skills:        $(ls "$OC_SKILLS" 2>/dev/null | wc -l) installiert"
-echo -e "DB:            $FORGE_DB_DIR/projects.db"
+echo -e "DB:            forge-postgres (PostgreSQL 16)"
+echo -e "DB-API:        http://forge-db-api:3002"
 echo -e "Dashboard:     https://dashboard.beautymolt.com"
 echo ""
 
@@ -545,16 +532,20 @@ else
   echo -e "${COLOR_RED}Override:      FEHLER -- docker-compose.override.yml fehlt${COLOR_NC}"
 fi
 
-if docker inspect openclaw 2>/dev/null | grep -q "forge-db"; then
-  echo -e "${COLOR_GREEN}DB Mount:      OK${COLOR_NC}"
+if docker inspect forge-postgres &>/dev/null && docker exec forge-postgres pg_isready -U forge -d forge -q 2>/dev/null; then
+  echo -e "${COLOR_GREEN}PostgreSQL:    OK${COLOR_NC}"
 else
-  echo -e "${COLOR_RED}DB Mount:      FEHLER${COLOR_NC}"
+  echo -e "${COLOR_RED}PostgreSQL:    FEHLER${COLOR_NC}"
 fi
 
-if docker inspect forge-dashboard 2>/dev/null | grep -q "workspace"; then
-  echo -e "${COLOR_GREEN}Dashboard:     OK (inkl. Workspace)${COLOR_NC}"
-elif docker inspect forge-dashboard 2>/dev/null | grep -q "forge-db"; then
-  echo -e "${COLOR_YELLOW}Dashboard:     OK (Workspace fehlt noch)${COLOR_NC}"
+if curl -sf http://localhost:3002/health > /dev/null 2>&1; then
+  echo -e "${COLOR_GREEN}forge-db-api:  OK${COLOR_NC}"
+else
+  echo -e "${COLOR_YELLOW}forge-db-api:  ! nicht erreichbar${COLOR_NC}"
+fi
+
+if docker inspect forge-dashboard &>/dev/null && docker ps --filter "name=forge-dashboard" --filter "status=running" -q | grep -q .; then
+  echo -e "${COLOR_GREEN}Dashboard:     OK${COLOR_NC}"
 else
   echo -e "${COLOR_YELLOW}Dashboard:     ! nicht gestartet${COLOR_NC}"
 fi

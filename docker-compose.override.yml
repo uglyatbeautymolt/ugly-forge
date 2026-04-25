@@ -5,11 +5,50 @@
 
 services:
 
-  openclaw:
+  forge-postgres:
+    image: postgres:16-alpine
+    container_name: forge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: forge
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: ${FORGE_DB_PASSWORD}
     volumes:
-      - /home/alex/ugly-forge/db:/home/node/forge-db
+      - /home/alex/ugly-forge/db/postgres-data:/var/lib/postgresql/data
+    networks:
+      - ugly-net
+    mem_limit: 256m
+    memswap_limit: 384m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  forge-db-api:
+    build:
+      context: /home/alex/ugly-forge/forge-db-api
+      dockerfile: Dockerfile
+    image: forge-db-api:latest
+    pull_policy: never
+    container_name: forge-db-api
+    restart: unless-stopped
+    environment:
+      FORGE_DB_PASSWORD: ${FORGE_DB_PASSWORD}
+    depends_on:
+      forge-postgres:
+        condition: service_healthy
+    networks:
+      - ugly-net
+    mem_limit: 64m
+    memswap_limit: 128m
+
+  openclaw:
+    group_add:
+      - "988"
+    volumes:
       - /home/alex/ugly-stack/nginx/conf.d:/home/node/nginx-conf
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - CF_TOKEN=${CF_TOKEN}
       - CF_ACCOUNT_ID=${CF_ACCOUNT_ID}
@@ -25,14 +64,13 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - /home/alex/ugly-forge/db:/home/node/forge-db
       - /home/alex/ugly-stack/www:/home/node/www
       - /home/alex/ugly-stack/openclaw-data/workspace/projects:/home/node/workspace/projects
       - /home/alex/ugly-stack/nginx/conf.d:/home/node/nginx-conf
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PORT=3001
-      - DB_PATH=/home/node/forge-db/projects.db
+      - DATABASE_URL=postgresql://forge:${FORGE_DB_PASSWORD}@forge-postgres:5432/forge
       - WWW_PATH=/home/node/www
       - WORKSPACE_PATH=/home/node/workspace/projects
       - CF_TOKEN=${CF_TOKEN}
@@ -40,5 +78,13 @@ services:
       - CF_TUNNEL_ID=${CF_TUNNEL_ID}
       - CF_ZONE_ID=${CF_ZONE_ID}
       - FORGE_DOMAIN=beautymolt.com
+    depends_on:
+      forge-postgres:
+        condition: service_healthy
     networks:
       - ugly-net
+
+networks:
+  ugly-net:
+    external: true
+    name: ugly-net

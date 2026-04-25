@@ -1,16 +1,16 @@
 {
   "name": "ugly-forge-dashboard-server",
   "version": "1.0.0",
-  "description": "ugly-forge Dashboard Backend — SQLite API + WebSocket",
+  "description": "ugly-forge Dashboard Backend — PostgreSQL API + WebSocket",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
     "cors": "^2.8.5",
     "express": "^4.18.3",
+    "pg": "^8.12.0",
     "ws": "^8.16.0"
   }
 }

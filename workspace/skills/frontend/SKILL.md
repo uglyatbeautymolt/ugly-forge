@@ -10,9 +10,9 @@ description: "Implementiert UI-Komponenten mit HTML/CSS/JS oder React basierend 
 2. Lese `blueprint.md` — Komponenten-Struktur
 3. Prüfe FORGE-INDEX.md: Ist Webdesigner UND DB fertig?
 4. Bestimme Modus: Statisch oder React?
-5. SQLite Task anlegen (running):
+5. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Frontend implementieren', 'forge-frontend', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'Frontend implementieren', 'forge-frontend', 'running');"
 ```
 
 ## Modus A: Statisch (HTML + Tailwind CDN)
@@ -59,9 +59,9 @@ Falls Kontext unterbrochen:
 exec: sed -i 's/| forge-frontend | pending/| forge-frontend | done/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update
+## DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-frontend' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-frontend' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce

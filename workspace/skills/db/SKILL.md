@@ -9,9 +9,9 @@ description: "Erstellt Datenbankschema, Migrations und Queries. Immer ZUERST fer
 1. Lese `blueprint.md` — Datenbankschema Sektion
 2. Prüfe FORGE-INDEX.md: Ist Architekt fertig?
 3. Prüfe: SQLite oder PostgreSQL?
-4. SQLite Task anlegen (running):
+4. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Datenbankschema erstellen', 'forge-db', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'Datenbankschema erstellen', 'forge-db', 'running');"
 ```
 
 ## KRITISCH: Du bist IMMER ZUERST fertig
@@ -61,9 +61,9 @@ ON CONFLICT(id) DO UPDATE SET
 exec: sed -i 's/| forge-db | pending/| forge-db | done/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update (projects.db)
+## DB Update (forge-db-api)
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-db' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-db' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce (SOFORT!)

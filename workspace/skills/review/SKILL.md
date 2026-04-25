@@ -9,9 +9,9 @@ description: "Quality Gate Agent. Prueft Requirements und Architektur auf Vollst
 1. Lese FORGE-INDEX.md des Projekts
 2. Lese requirements.md oder blueprint.md (je nach Gate)
 3. Prüfe welches Gate angefordert wird
-4. SQLite Task anlegen (running):
+4. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Review Gate Prüfung', 'forge-review', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'Review Gate Prüfung', 'forge-review', 'running');"
 ```
 
 ## Review Gate 1 — Nach Requirements
@@ -63,9 +63,9 @@ Basierend auf konkretem Blueprint — Gate 1 Schätzung anpassen.
 exec: sed -i 's/| forge-review (Gate 1) | pending/| forge-review (Gate 1) | approved/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update
+## DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-review' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-review' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce nach Entscheid

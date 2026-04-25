@@ -42,15 +42,15 @@ Kein echtes Parallel-Spawning. Agenten starten nacheinander mit announce-back.
 
 Jeder Agent liest UND schreibt:
 1. `FORGE-INDEX.md` im Projektordner (File-basiert, alle sehen es)
-2. SQLite via exec-Tool:
-   `exec: sqlite3 /home/node/forge-db/projects.db "[SQL]"`
+2. PostgreSQL via forge-db-api (HTTP):
+   `exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=[SQL]"`
 
 ## Wichtige Pfade (im Container)
 
 | Was | Pfad |
 |-----|------|
 | Skills (shared) | /home/node/.openclaw/skills/ |
-| DB | /home/node/forge-db/projects.db |
+| DB-API | http://forge-db-api:3002 (PostgreSQL via HTTP) |
 | Workspace | /home/node/.openclaw/workspace/ |
 | Projektdokumente | /home/node/.openclaw/workspace/projects/[SLUG]/ |
 | Web Output | /home/node/www/[SLUG]/ (nginx serviert direkt) |

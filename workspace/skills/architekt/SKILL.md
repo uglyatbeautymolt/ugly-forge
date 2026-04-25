@@ -10,9 +10,9 @@ description: "Erstellt System-Design, Blueprint und Mermaid-Diagramme. Trifft be
 2. Lese `requirements.md` vollständig
 3. Lese FORGE-INDEX.md — Status von Gate 1?
 4. Gate 1 muss APPROVED sein, sonst stoppen.
-5. SQLite Task anlegen (running):
+5. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Architektur und Blueprint erstellen', 'forge-architekt', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'Architektur und Blueprint erstellen', 'forge-architekt', 'running');"
 ```
 
 ## Blueprint erstellen
@@ -24,6 +24,29 @@ Jede Entscheidung mit Begründung:
 Grund: Interaktive UI, kein SSR nötig
 Verworfen: Next.js (zu komplex)
 ```
+
+### Kapitel 1b: Datenbank-Entscheidung (PFLICHT bei persistenten Daten)
+
+Wähle DB-Typ anhand Requirements. Dokumentiere in blueprint.md:
+```markdown
+## Datenbank
+- **Typ:** PostgreSQL 16
+- **Begründung:** Relationale Nutzerdaten, concurrent Writes erwartet
+- **Container:** [slug]-postgres (forge-devops erstellt)
+- **Schema:** forge-db implementiert schema.sql
+```
+
+| Kriterium | PostgreSQL | MariaDB | SQLite | Redis | MongoDB | Kein DB |
+|-----------|-----------|---------|--------|-------|---------|---------|
+| Relationale Daten, Joins | ✅ | ✅ | ✅ | ❌ | ❌ | — |
+| Concurrent Writes / Multi-User | ✅ | ✅ | ⚠️ | ✅ | ✅ | — |
+| Key-Value / Cache / Sessions | ⚠️ | ⚠️ | ⚠️ | ✅ | ⚠️ | — |
+| Flexibles Schema / JSON | ⚠️ | ⚠️ | ❌ | ❌ | ✅ | — |
+| Embedded / Einfach / Single-User | ⚠️ | ❌ | ✅ | ❌ | ❌ | — |
+| Rein statisch / kein State | — | — | — | — | — | ✅ |
+
+**Standardwahl bei Unsicherheit: PostgreSQL**
+**forge-db-api ist NICHT die Projekt-DB** — forge-intern. Projekt-Apps bekommen eigenen Container.
 
 ### Kapitel 2: System-Design
 - Komponentenübersicht
@@ -37,7 +60,7 @@ graph TD
     A[User Browser] --> B[nginx]
     B --> C[Frontend]
     C --> D[Backend API]
-    D --> E[(SQLite DB)]
+    D --> E[(PostgreSQL DB)]
 ```
 
 ### Kapitel 4: Projektstruktur
@@ -63,9 +86,9 @@ Beschreibe Schema zuerst, API danach — nie umgekehrt.
 exec: sed -i 's/| forge-architekt | pending/| forge-architekt | done/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update
+## DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-architekt' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-architekt' AND project_id='[id]' AND status='running';"
 ```
 
 ## Announce

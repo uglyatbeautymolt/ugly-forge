@@ -9,21 +9,21 @@ description: "Fuehrt Retrospektive nach Projektabschluss durch. Analysiert TOP 3
 1. Lese FORGE-INDEX.md — Projekt abgeschlossen?
 2. Lese model_performance aus SQLite
 3. Berechne Abweichungen
-4. SQLite Task anlegen (running):
+4. Task anlegen (running):
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "INSERT INTO tasks (id, project_id, title, agent, status, created_at, updated_at) VALUES (lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-4'||substr(lower(hex(randomblob(2))),2)||'-'||substr('89ab',abs(random())%4+1,1)||substr(lower(hex(randomblob(2))),2)||'-'||lower(hex(randomblob(6))), '[project_id]', 'Retrospektive durchführen', 'forge-retro', 'running', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=INSERT INTO tasks (id, project_id, title, agent, status) VALUES (gen_random_uuid()::text, '[project_id]', 'Retrospektive durchführen', 'forge-retro', 'running');"
 ```
 
-## Analyse via SQLite
+## Analyse via DB-API
 
 ### TOP 3 Token-Verbrauch
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "SELECT agent, SUM(tokens_input + tokens_output) as total_tokens FROM model_performance WHERE project_id = '[id]' GROUP BY agent ORDER BY total_tokens DESC LIMIT 3;"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=SELECT agent, SUM(tokens_input + tokens_output) as total_tokens FROM model_performance WHERE project_id = '[id]' GROUP BY agent ORDER BY total_tokens DESC LIMIT 3;"
 ```
 
 ### TOP 3 Kostenabweichung
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "SELECT agent, SUM(cost) as real_cost FROM model_performance WHERE project_id = '[id]' GROUP BY agent ORDER BY real_cost DESC LIMIT 3;"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=SELECT agent, SUM(cost) as real_cost FROM model_performance WHERE project_id = '[id]' GROUP BY agent ORDER BY real_cost DESC LIMIT 3;"
 ```
 
 ### Vereinigung -> max 3 Fokus-Agenten
@@ -67,10 +67,10 @@ Status: ausstehend
 exec: sed -i 's/| forge-retro | pending/| forge-retro | done/' [pfad]/FORGE-INDEX.md
 ```
 
-## SQLite Update
+## DB Update
 ```bash
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE tasks SET status='done', updated_at=CURRENT_TIMESTAMP WHERE agent='forge-retro' AND project_id='[id]' AND status='running';"
-exec: sqlite3 /home/node/forge-db/projects.db "UPDATE projects SET status='completed' WHERE id='[id]';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE tasks SET status='done', updated_at=NOW() WHERE agent='forge-retro' AND project_id='[id]' AND status='running';"
+exec: curl -s -X POST http://forge-db-api:3002/query --data-urlencode "sql=UPDATE projects SET status='completed' WHERE id='[id]';"
 ```
 
 ## Nicht erlaubt
